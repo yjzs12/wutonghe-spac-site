@@ -1,0 +1,18 @@
+# 作物生长模型独立网站（site_spac.py）—— 运行依赖
+# 用法： pip install -r requirements-spac.txt
+# 由全量 requirements.txt 拆分而来：不含地理空间栈（那是种植结构模块用的）。
+
+# ---------- Web 服务 ----------
+fastapi>=0.110
+uvicorn>=0.27
+python-multipart>=0.0.9
+
+# ---------- 科学计算 ----------
+numpy>=1.26
+pandas>=2.0
+scipy>=1.11
+matplotlib>=3.8
+openpyxl>=3.1          # 导出 AquaCrop 原始 Excel
+
+# ---------- 作物生长模型引擎 ----------
+aquacrop>=3.0
