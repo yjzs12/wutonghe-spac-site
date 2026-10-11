@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="app-base" content="__BASE__">
+<title>作物生长模型 · 梧桐河灌区模型平台</title>
+<link rel="stylesheet" href="__BASE__/static/app.css?v=__V__">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="navbar-inner">
+    <a class="brand" href="/"><span class="dot">梧</span>梧桐河灌区模型平台</a>
+    <div class="nav-links">
+      <a href="/">首页</a>
+      <a href="/spac" class="active">作物生长模型</a>
+      <a href="/crop">种植结构提取</a>
+    </div>
+    <div class="nav-right">
+      <span class="pill" id="taskPill">就绪</span>
+      <span class="pill" id="elapsed"></span>
+    </div>
+  </div>
+</nav>
+
+<div class="container">
+
+  <h1 class="page-title">基于 SPAC 的典型作物生长模型</h1>
+  <p class="page-desc">
+    土壤-作物-大气连续体耦合模拟 ｜ AquaCrop-OSPy 引擎 ｜ 每作物 8 档灌溉方案（对照 CK + 水量梯度 L1–L7）
+    ｜ 最优判据：产量达 95% 峰值的最小灌水量
+  </p>
+
+  <div class="grid-side">
+
+    <!-- ==================== 左：输入与日志 ==================== -->
+    <div class="col">
+
+      <div class="card">
+        <div class="card-head">
+          <h2>① 气象数据</h2>
+          <div class="right">
+            <button class="btn btn-sm" id="refreshYears">刷新</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="field">
+            <label>已有气象数据的年份</label>
+            <div class="chips" id="yearChips"><span class="muted">加载中…</span></div>
+            <div class="hint">点击年份芯片可填入下方「模拟年份」。</div>
+          </div>
+
+          <div class="field">
+            <label>导入逐日气象 CSV（替换/新增某一年）</label>
+            <div class="input-row">
+              <input type="file" id="weatherFile" accept=".csv">
+              <button class="btn btn-primary" id="importWeather">导入</button>
+            </div>
+            <div class="hint">
+              7 列：<code>日期</code> <code>最低气温</code> <code>最高气温</code> <code>降雨量</code>
+              <code>风速</code> <code>相对湿度</code> <code>太阳辐射</code>，中英文列名均可，Excel 另存为 CSV 即可。
+              <a id="tplLink" href="__BASE__/api/weather_template">下载模板</a>
+            </div>
+          </div>
+
+          <div id="importResult"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>② 模拟设置</h2></div>
+        <div class="card-body">
+          <div class="field">
+            <label>模拟年份</label>
+            <select id="yearSelect"><option value="">（无数据，请先导入气象数据）</option></select>
+            <div class="hint">模拟期 <code id="periodHint">04-01 ~ 10-15</code>，含前期土壤水分初始化。</div>
+          </div>
+
+          <div class="field">
+            <label>模拟作物</label>
+            <div class="radio-group" id="cropGroup">
+              <label><input type="radio" name="crop" value="rice"><span>水稻</span></label>
+              <label><input type="radio" name="crop" value="corn"><span>玉米</span></label>
+              <label><input type="radio" name="crop" value="both" checked><span>两种都运行</span></label>
+            </div>
+            <div class="hint">每作物 8 个方案，单作物约 1 分钟。运行期间请勿关闭页面。</div>
+          </div>
+
+          <div class="actions">
+            <button class="btn btn-primary btn-block" id="runBtn">开始模拟</button>
+          </div>
+          <div style="margin-top:8px" class="actions">
+            <button class="btn btn-sm btn-block" id="demoBtn">一键跑通内置样例（2024 年 · 两作物）</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>运行日志</h2>
+          <div class="right">
+            <a class="btn btn-sm" id="downloadLog" href="#" download>下载</a>
+          </div>
+        </div>
+        <div class="card-body tight">
+          <div class="log" id="log"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>使用说明</h2></div>
+        <details class="help" open>
+          <summary>气象数据格式与模拟新年份步骤</summary>
+          <div class="body">第一步  准备该年逐日气象数据，时间范围 04-01 ~ 10-15（约 198 天，每天一行）：
+
+  列名       单位        示例         说明
+  日期       -          2026-04-01   （2026/4/1 也可）
+  最低气温   ℃          5.2
+  最高气温   ℃          18.6
+  降雨量     mm         0.0          当日总量
+  风速       m/s        3.0
+  相对湿度   %          65           0-100
+  太阳辐射   MJ/m²/日   18.9         全天总辐射
+
+第二步  用 Excel 整理好（第 1 行是列名，之后每行一天），
+        「另存为 → CSV(逗号分隔)(*.csv)」，在上方「导入逐日气象 CSV」上传。
+
+第三步  选中该年份，点「开始模拟」。
+
+说明：导入后按数据年份自动落盘；若同年已存在 ERA5 下载数据（优先级更高），
+     页面会先询问是否替换。</div>
+        </details>
+        <details class="help">
+          <summary>输出结果说明</summary>
+          <div class="body">irrigation_optimization_年份.csv   8 方案汇总表（灌水量 / 产量 / ET / WUE）
+optimal_irrigation_年份.csv        经济最优灌溉制度（产量达 95% 峰值）
+water_requirement_年份.csv         作物需水量逐月统计（ET0 / ETc / Kc / 降雨 / 灌溉）
+daily_作物_方案_年份.csv           各方案逐日结果
+aqua_original_作物_方案_年份.xlsx  AquaCrop 引擎原始输出（4 个工作表）
+figures/yield_irr_curve_*.png      产量-灌水量响应曲线
+figures/water_dynamics_*.png       水分动态（正常灌溉对照）
+figures/irrigation_schedule_*.png  灌溉制度时序对比
+figures/water_requirement_*.png    作物需水过程（正常灌溉对照）
+figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都跑时）</div>
+        </details>
+      </div>
+
+    </div>
+
+    <!-- ==================== 右：结果工作台（一页看全所有出图） ==================== -->
+    <div class="col">
+      <div class="workbench">
+
+        <div class="kpis hidden" id="kpiRow"></div>
+
+        <div class="card" id="figureCard">
+          <div class="card-head">
+            <h2>结果图件</h2>
+            <span class="sub" id="figureSub">运行后在此铺开全部图表，一屏可对比</span>
+            <div class="right">
+              <button class="btn btn-sm" id="toggleWide" disabled>单列铺宽</button>
+            </div>
+          </div>
+          <div class="card-body tight" id="figureBody">
+            <div class="empty-state">还没有结果 —— 左侧选择年份与作物后点「开始模拟」，或先点「一键跑通内置样例」。</div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card" id="resultCard">
+            <div class="card-head">
+              <h2>经济最优灌溉制度</h2>
+              <span class="sub">产量达 95% 峰值的最小灌水量</span>
+            </div>
+            <div class="card-body" id="optimalBody"><div class="empty-state">暂无</div></div>
+          </div>
+
+          <div class="card" id="summaryCard">
+            <div class="card-head">
+              <h2>灌溉方案汇总表</h2>
+              <span class="sub" id="summarySub"></span>
+            </div>
+            <div class="card-body" id="summaryBody"><div class="empty-state">暂无</div></div>
+          </div>
+        </div>
+
+        <div class="card" id="waterReqCard">
+          <div class="card-head">
+            <h2>作物需水量</h2>
+            <span class="sub" id="waterReqSub">逐月 ET0 / ETc / Kc / 降雨 / 灌溉</span>
+          </div>
+          <div class="card-body" id="waterReqBody"><div class="empty-state">暂无</div></div>
+        </div>
+
+        <div class="card" id="fileCard">
+          <div class="card-head">
+            <h2>结果文件</h2>
+            <span class="sub">点击文件名下载</span>
+          </div>
+          <div class="card-body" id="fileBody"><div class="empty-state">暂无</div></div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="__BASE__/static/common.js?v=__V__"></script>
+<script src="__BASE__/static/spac.js?v=__V__"></script>
+</body>
+</html>
