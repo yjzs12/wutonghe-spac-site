@@ -309,6 +309,19 @@ def water_requirement(results, crop: str, year: int,
     rows.append(["全生育期合计", round(tot.et0, 1), round(tot.etc, 1),
                  _kc(tot.etc, tot.et0), round(tot.prcp, 1), round(tot.irr, 1)])
 
+    # 逐日明细：按月份分组。页面默认只显示月表，点击月份行才展开该月逐日，
+    # 这样既拿到日步长数据，又不会把页面拉长。
+    daily_by_month: dict[int, list] = {}
+    for _, dr in m.sort_values("日期").iterrows():
+        et0_d = float(dr["ReferenceET"])
+        etc_d = float(dr["蒸腾蒸发量(mm)"])
+        daily_by_month.setdefault(int(dr["月"]), []).append([
+            dr["日期"].strftime("%m-%d"),
+            round(et0_d, 2), round(etc_d, 2), _kc(etc_d, et0_d),
+            round(float(dr["Precipitation"]), 2),
+            round(float(dr["每日灌溉量(mm)"]), 2),
+        ])
+
     out = {
         "crop": crop,
         "name": rs.CROP_CN[crop],
@@ -317,6 +330,11 @@ def water_requirement(results, crop: str, year: int,
             "columns": ["时段", "参考需水量ET0(mm)", "作物需水量ETc(mm)",
                         "作物系数Kc", "降雨量(mm)", "灌水量(mm)"],
             "rows": rows,
+        },
+        "daily": {
+            "columns": ["日期", "参考需水量ET0(mm)", "作物需水量ETc(mm)",
+                        "作物系数Kc", "降雨量(mm)", "灌水量(mm)"],
+            "by_month": {str(k): v for k, v in sorted(daily_by_month.items())},
         },
         "total_et0": round(float(tot.et0), 1),
         "total_etc": round(float(tot.etc), 1),
@@ -447,6 +465,7 @@ def run(crops: list[str], year: int, out_dir: Path, progress=None) -> dict:
 
     water_req = None
     wr_crops = []
+    wr_daily_rows: list = []
     for crop in crops:
         if progress:
             progress(f"{rs.CROP_CN[crop]} 需水量统计")
@@ -466,18 +485,31 @@ def run(crops: list[str], year: int, out_dir: Path, progress=None) -> dict:
         f = pd.DataFrame(wr["monthly"]["rows"], columns=wr["monthly"]["columns"])
         f.insert(0, "作物", wr["name"])
         wr_crops.append((wr, f))
+        # 逐日明细长表：作物 / 月份 / 日期 / ET0 / ETc / Kc / 降雨 / 灌溉
+        for mo, day_rows in wr["daily"]["by_month"].items():
+            for dr in day_rows:
+                wr_daily_rows.append([wr["name"], f"{mo}月"] + list(dr))
 
     if wr_crops:
         wr_csv = f"water_requirement_{year}.csv"
         pd.concat([f for _, f in wr_crops], ignore_index=True) \
           .to_csv(out_dir / wr_csv, index=False, encoding="utf-8-sig")
+        wr_daily_csv = None
+        if wr_daily_rows:
+            wr_daily_csv = f"water_requirement_daily_{year}.csv"
+            pd.DataFrame(wr_daily_rows,
+                         columns=["作物", "月份"]
+                         + wr_crops[0][0]["daily"]["columns"]) \
+              .to_csv(out_dir / wr_daily_csv, index=False, encoding="utf-8-sig")
         water_req = {
             "year": year,
             "basis": rs.NORMAL_LABEL,
             "crops": [wr for wr, _ in wr_crops],
             "csv": wr_csv,
+            "daily_csv": wr_daily_csv,
         }
-        log(f"\n需水量统计已保存 ({wr_csv})")
+        log(f"\n需水量统计已保存 ({wr_csv}"
+            + (f" ｜ 逐日明细 {wr_daily_csv}" if wr_daily_csv else "") + ")")
 
     # ---- 多作物对比图（两个作物都跑时才有意义）----
     if len(crops) > 1:
@@ -498,6 +530,7 @@ def run(crops: list[str], year: int, out_dir: Path, progress=None) -> dict:
 
     deliv = [f"irrigation_optimization_{year}.csv"] + optimal_files \
         + ([water_req["csv"]] if water_req else []) \
+        + ([water_req["daily_csv"]] if water_req and water_req.get("daily_csv") else []) \
         + daily_files + excel_files
 
     # 关键指标速览（页面顶部卡片）

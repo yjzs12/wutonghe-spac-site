@@ -260,7 +260,7 @@ function renderResult(jobId, res) {
   renderTable($('#summaryBody'), res.summary, { highlight: hl });
   $('#summarySub').textContent = `${res.year} 年 · ${res.summary.rows.length} 个方案（绿色行为最优）`;
 
-  /* --- 作物需水量（每作物一张逐月表，合计行高亮） --- */
+  /* --- 作物需水量（月表 + 点月份展开逐日明细） --- */
   const wrBox = $('#waterReqBody');
   const wr = res.water_req;
   if (wr && wr.crops && wr.crops.length) {
@@ -273,17 +273,115 @@ function renderResult(jobId, res) {
       wrBox.appendChild(title);
       const box = el('div');
       wrBox.appendChild(box);
-      const n = c.monthly.rows.length;
-      renderTable(box, c.monthly, { highlight: [n - 1] });
+      renderWaterReq(box, c);
     });
     $('#waterReqSub').textContent =
-      `${wr.year} 年 · ${wr.basis} · ETc=蒸腾+棵间蒸发，Kc=ETc/ET0`;
+      `${wr.year} 年 · ${wr.basis} · 月表默认折叠，点月份行展开该月逐日`;
   } else {
     wrBox.innerHTML = '<div class="empty-state">暂无</div>';
   }
 
   /* --- 文件 --- */
   renderFiles($('#fileBody'), jobId, res.files);
+}
+
+/* ---------------- 作物需水量：月表 + 可展开逐日 ---------------- */
+/* 月行默认折叠，点击月份行才展开该月的逐日 ET0/ETc/Kc/降雨/灌溉，
+   这样既能看日步长数据，又不会一上来就把整个生育期铺满页面。 */
+function renderWaterReq(box, c) {
+  const mcols = c.monthly.columns;
+  const totalRow = c.monthly.rows[c.monthly.rows.length - 1];
+  const monthRows = c.monthly.rows.slice(0, -1);
+  const byMonth = (c.daily && c.daily.by_month) || {};
+
+  const table = document.createElement('table');
+  const thead = document.createElement('thead');
+  const htr = document.createElement('tr');
+  mcols.forEach(col => {
+    const th = document.createElement('th');
+    th.textContent = col;
+    htr.appendChild(th);
+  });
+  thead.appendChild(htr);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+
+  const putCells = (tr, arr) => {
+    arr.forEach(v => {
+      const td = document.createElement('td');
+      if (v == null) {
+        td.textContent = '—';
+      } else if (typeof v === 'number') {
+        td.textContent = fmtNum(v);
+        td.className = 'num';
+      } else {
+        td.textContent = String(v);
+      }
+      tr.appendChild(td);
+    });
+  };
+
+  monthRows.forEach(row => {
+    const days = byMonth[String(parseInt(row[0], 10))];
+    const tr = document.createElement('tr');
+    putCells(tr, row);
+    tbody.appendChild(tr);
+    if (!days || !days.length) return;
+
+    const caret = document.createElement('span');
+    caret.className = 'wr-caret';
+    caret.textContent = '▸ ';
+    const firstTd = tr.firstChild;
+    firstTd.insertBefore(caret, firstTd.firstChild);
+
+    const dayTrs = days.map(dr => {
+      const dtr = document.createElement('tr');
+      dtr.className = 'wr-day';
+      dtr.style.display = 'none';
+      putCells(dtr, dr);
+      dtr.firstChild.style.paddingLeft = '1.8rem';
+      tbody.appendChild(dtr);
+      return dtr;
+    });
+
+    tr.classList.add('wr-month');
+    tr.title = '点击展开该月逐日明细';
+    tr.addEventListener('click', () => {
+      const open = tr.classList.toggle('wr-open');
+      dayTrs.forEach(d => { d.style.display = open ? '' : 'none'; });
+      caret.textContent = open ? '▾ ' : '▸ ';
+    });
+  });
+
+  const ttr = document.createElement('tr');
+  ttr.className = 'highlight';
+  putCells(ttr, totalRow);
+  tbody.appendChild(ttr);
+
+  table.appendChild(tbody);
+  box.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'table-wrap';
+  wrap.appendChild(table);
+  box.appendChild(wrap);
+
+  ensureWrStyle();
+}
+
+/* 展开区样式：一次性注入 <style>，颜色跟随浅色/深色主题变量 */
+function ensureWrStyle() {
+  if (document.getElementById('wrStyle')) return;
+  const st = document.createElement('style');
+  st.id = 'wrStyle';
+  st.textContent = `
+tr.wr-month { cursor: pointer; }
+tr.wr-month:hover { background: var(--bg-sunken); }
+tr.wr-open { background: color-mix(in srgb, var(--accent-soft) 70%, transparent); }
+tr.wr-day td { font-size: .86em; color: var(--text-2); background: var(--bg-sunken); }
+.wr-caret { color: var(--accent); font-weight: 600; }
+`;
+  document.head.appendChild(st);
 }
 
 function applyWide() {

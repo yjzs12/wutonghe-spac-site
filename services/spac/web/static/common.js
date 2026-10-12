@@ -5,7 +5,7 @@
    ========================================================================== */
 
 /* URL 前缀由页面 <meta name="app-base" content="__BASE__"> 决定：
-   挂在网关下是 /spac、/crop，独立运行是空串。 */
+   挂在网关下是 /crop，独立运行是空串。 */
 const BASE = (document.querySelector('meta[name="app-base"]') || {}).content || '';
 
 const $ = (sel, root = document) => root.querySelector(sel);
