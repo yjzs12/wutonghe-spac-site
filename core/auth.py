@@ -453,8 +453,8 @@ def install(app, key: str) -> None:
     @app.post(f"{base}/api/auth/logout")
     def auth_logout():
         resp = JSONResponse({"ok": True})
+        # ★ 只发 1 条 Set-Cookie：多删一个从未签发过的历史名，会被代理层合并掉真正的那条删除。
         resp.delete_cookie(cookie_name(key), path="/")
-        resp.delete_cookie(cookie_name(""), path="/")
         return resp
 
     @app.get(f"{base}/api/auth/me")
