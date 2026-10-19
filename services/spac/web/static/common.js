@@ -271,9 +271,13 @@ function renderFigures(container, jobId, figures, opts = {}) {
     img.alt = fig.title;
     img.decoding = 'async';
     img.className = 'fig-img';
-    img.addEventListener('load', () =>  { img.classList.add('ready'); ph.remove(); });
+    const reveal = () => { img.classList.add('ready'); if (ph.parentNode) ph.remove(); };
+    img.addEventListener('load', reveal);
     img.addEventListener('error', () => { ph.textContent = '图片加载失败（可点右上角 ⤓ 下载原图）'; });
     img.src = fileUrl(jobId, fig.rel);
+    // 兜底：图片直接从缓存/已完成状态命中时 load 可能早已错过，主动补判一次。
+    // （CSS 已让 img 默认可见，这里只是把「加载中…」占位收掉，双保险。）
+    requestAnimationFrame(() => { if (img.complete && img.naturalWidth > 0) reveal(); });
     body.appendChild(img);
 
     const open = () => lightbox(img.src, fig.title, jobId, fig.rel);

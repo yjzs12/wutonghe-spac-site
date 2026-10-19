@@ -356,8 +356,11 @@ tr.highlight { background: var(--ok-soft) !important; font-weight: 600; }
 .figure .fig-body img {
   max-width: 100%; max-height: 460px; object-fit: contain; display: block;
   border-radius: 4px; background: #fff;
-  /* 用透明度淡入替代 display:none：元素始终参与布局与懒加载判定 */
-  opacity: 0; transition: opacity .2s ease;
+  /* ★ 默认可见：不再把「可见」挂在 load 事件上。
+     历史故障：opacity:0 + 等 load 才加 .ready —— 一旦 load 没触发（缓存
+     命中、代理截断、旧内核），缩略图就永久空白、只有点开全屏才看得到。
+     .ready 现在只用于淡入动画，缺了也不影响可见性。 */
+  opacity: 1; transition: opacity .2s ease;
 }
 .figure .fig-body img.ready { opacity: 1; }
 .figure .fig-body .loading { color: var(--text-3); font-size: 12.5px; }

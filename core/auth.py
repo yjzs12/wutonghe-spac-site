@@ -453,7 +453,14 @@ def install(app, key: str) -> None:
     @app.post(f"{base}/api/auth/logout")
     def auth_logout():
         resp = JSONResponse({"ok": True})
-        # ★ 只发 1 条 Set-Cookie：多删一个从未签发过的历史名，会被代理层合并掉真正的那条删除。
+        # ★ 这里**只能发一条** Set-Cookie。
+        #   2026-10-19 实测的故障：原代码同时删 `wth_sess_<key>` 与
+        #   `wth_sess_site`（历史兜底名，全工程没有任何地方真的签发过它）。两条
+        #   set-cookie 头经过网关 `_proxy_sync` 时被 dict 合并，只剩最后一条 ——
+        #   于是真正承载会话的那条没被删掉，用户点「退出」→ 页面刷新 → 还是登录态。
+        #   删掉一条无用的，就只剩一条，任何中间层都不会再把它合并掉。
+        #   （cookie 的 path 与签发时一致，都是 "/"，浏览器必然能删。
+        #    `current()` 里对 `cookie_name("")` 的兜底读取保留着，不影响老 cookie。）
         resp.delete_cookie(cookie_name(key), path="/")
         return resp
 

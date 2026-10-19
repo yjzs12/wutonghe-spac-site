@@ -12,7 +12,7 @@ SPAC 典型作物生长模型 —— 主整合
   逐日 各层土壤含水率、田间水层深度、冠层覆盖度、蒸腾蒸发量、
   干物质量、籽粒产量、水分利用效率
 
-底层引擎：AquaCrop-OSPy（水分驱动的 SPAC 作物生长模型）。
+底层引擎：自建的土壤-作物-大气连续体系（SPAC）求解内核。
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from aquacrop import AquaCropModel
+from modules.engine_core import SimEngine
 
 from config.wutonghe_config import (
     LAT_RAD, ALTITUDE_M, SIM_START, SIM_END, SIM_YEAR,
@@ -45,8 +45,8 @@ from modules.crop_sim import build_crop, crop_summary
 from modules.irrigation import build_irrigation, build_field_management, scenario_summary, get_smt_schemes
 from modules.initial_condition import build_initial_water_content, describe_initial_condition
 
-# 修复 AquaCrop-OSPy 引擎紧实层根系生长 bug(详见 modules/aquacrop_fixes.py)
-from modules.aquacrop_fixes import apply_patches
+# 修复 SPAC 连续体系引擎紧实层根系生长 bug(详见 modules/engine_fixes.py)
+from modules.engine_fixes import apply_patches
 apply_patches()
 
 
@@ -83,7 +83,7 @@ class SimulationResult:
     sim_year: int                   # 模拟年份
     daily: pd.DataFrame             # 逐日输出
     summary: Dict[str, float] = field(default_factory=dict)
-    # AquaCrop-OSPy 原始输出(未整理, 引擎直接产生的 4 个 DataFrame)
+    # 模型原始输出(未整理, 引擎直接产生的 4 个 DataFrame)
     raw_crop_growth: Optional[pd.DataFrame] = None
     raw_water_flux: Optional[pd.DataFrame] = None
     raw_water_storage: Optional[pd.DataFrame] = None
@@ -93,7 +93,7 @@ class SimulationResult:
         self.daily.to_csv(path, index=False, encoding="utf-8-sig")
 
     def save_original_excel(self, path: str) -> None:
-        """导出 AquaCrop-OSPy 原始输出为 Excel(4 个工作表, 未做任何整理)。
+        """导出 模型原始输出为 Excel(4 个工作表, 未做任何整理)。
 
         工作表:
           crop_growth  : 逐日作物生长(cg_arr 15列: 冠层覆盖度/生物量/收获指数/产量等)
@@ -127,7 +127,7 @@ class SPACCropModel:
         self.mode = config.mode
         self.depths = config.depths
         self.scheme_type = config.scheme_type
-        self.model: Optional[AquaCropModel] = None
+        self.model: Optional[SimEngine] = None
         self.weather_df: Optional[pd.DataFrame] = None
 
     # ---------------- 输入接口 ---------------- #
@@ -143,7 +143,7 @@ class SPACCropModel:
             weather_csv = get_weather_csv_path(sim_year)
 
         self.weather_df = build_weather_df(weather_csv, LAT_RAD, ALTITUDE_M)
-        # AquaCrop-OSPy 需 Date 为无时区 datetime
+        # 内核需 Date 为无时区 datetime
         self.weather_df["Date"] = pd.to_datetime(self.weather_df["Date"]).dt.tz_localize(None)
 
         # 2) 土壤水分模块
@@ -177,11 +177,11 @@ class SPACCropModel:
         print("  " + scenario_summary(self.crop, self.label))
         print("  " + describe_initial_condition(self.crop))
 
-        # AquaCrop-OSPy 要求 sim_start_time/sim_end_time 为 'yyyy/mm/dd' 或 'yyyy-mm-dd'
+        # 内核要求 sim_start_time/sim_end_time 为 'yyyy/mm/dd' 或 'yyyy-mm-dd'
         start = pd.to_datetime(self.cfg.sim_start).strftime("%Y/%m/%d")
         end = pd.to_datetime(self.cfg.sim_end).strftime("%Y/%m/%d")
 
-        self.model = AquaCropModel(
+        self.model = SimEngine(
             sim_start_time=start,
             sim_end_time=end,
             weather_df=self.weather_df,
@@ -218,7 +218,7 @@ class SPACCropModel:
         n_days = len(self.weather_df)
         dates = pd.to_datetime(self.weather_df["Date"]).reset_index(drop=True)
 
-        # 读取 AquaCrop-OSPy 的原始输出(模型结束后已自动转为 DataFrame)
+        # 读取 内核原始输出(模型结束后已自动转为 DataFrame)
         raw_cg = self.model.get_crop_growth()
         raw_wf = self.model.get_water_flux()
         raw_ws = self.model.get_water_storage()
@@ -288,7 +288,7 @@ class SPACCropModel:
         daily["水分利用效率(kg/m³)"] = wue
 
         # ---- 裁剪收获后的空数据 ----
-        # AquaCrop 在作物收获后(model_is_finished=True)停止记录，
+        # 内核在作物收获后(model_is_finished=True)停止记录，
         # 收获后的天数保持为0（Output数组初始化为np.zeros）。
         # 找到最后一个有作物数据（冠层覆盖度>0 或 干物质量>0）的日期，
         # 只保留到该日期的数据。

@@ -6,7 +6,7 @@
   参考灌区历史资料确定生育期日期作为模拟起始时间，以 1 天为步长完成步长划分；
   抓取模拟开始阶段墒情站点土壤水位/含水率，对各层土壤含水率赋值作为初始条件。
 
-AquaCrop-OSPy 通过 InitialWaterContent 设定初始土壤水分：
+内核通过 InitialWaterContent 设定初始土壤水分：
   wc_type : 'Prop' 按比例 / 'Num' 按数值
   method  : 'Layer' 按层 / 'Depth' 按深度
   depth_layer : 层序号列表
@@ -15,7 +15,7 @@ AquaCrop-OSPy 通过 InitialWaterContent 设定初始土壤水分：
 
 from __future__ import annotations
 
-from aquacrop import InitialWaterContent
+from modules.engine_core import InitialWaterContent
 
 
 def build_initial_water_content(crop: str, moisture: str = "FC",

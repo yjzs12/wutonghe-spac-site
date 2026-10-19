@@ -90,11 +90,11 @@ def run_crop_optimization(crop: str, sim_year: int) -> List[SimulationResult]:
                 res.save_csv(os.path.join(OUTPUT_DIR, f"daily_{tag}.csv"))
             except PermissionError as e:
                 print(f"    ⚠ CSV 保存失败(文件被 Excel 占用, 关闭后可重跑): {e}")
-            # AquaCrop-OSPy 原始输出 Excel(4个工作表: crop_growth/water_flux/
+            # 模型原始输出 Excel(4个工作表: crop_growth/water_flux/
             # water_storage/final_stats, 未做任何整理)
             try:
                 res.save_original_excel(
-                    os.path.join(OUTPUT_DIR, f"aqua_original_{tag}.xlsx"))
+                    os.path.join(OUTPUT_DIR, f"original_{tag}.xlsx"))
             except PermissionError as e:
                 print(f"    ⚠ 原始Excel保存失败(文件被 Excel 占用, 关闭后可重跑): {e}")
         except Exception as e:

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-AquaCrop-OSPy 引擎补丁
+SPAC 连续体系引擎补丁
 =======================
-修复 aquacrop 包 `solution/root_development.py` 中紧实层根系生长的 bug:
+修复底层求解库 `solution/root_development.py` 中紧实层根系生长的 bug:
 
 原版逻辑(第178-180行):
     Zr = max(ZrOUT, ZrOld)      # ZrOld = 昨日 *潜在* 根深(未经紧实层滞后调整)
@@ -13,7 +13,7 @@ ZrOUT(滞后调整后的实际根深)很快小于 ZrOld(昨日潜在根深), 导
 dZr 恒等于 0 —— 根系被永久冻结在 Zmin 附近, 根区 TAW 严重偏小,
 SMT 灌溉触发行为失真(本项目中玉米根系 153 天始终停在 0.30m)。
 
-按 FAO AquaCrop 参考手册(Raes et al., root development 章节),
+按 FAO 作物生长模型参考手册(Raes et al., root development 章节),
 实际根深应沿滞后轨迹单调增长: 通过紧实层的根深 = Zmin + Pen% × 潜在扩展量。
 因此 dZr 应与 *昨日实际根深* (Zroot_init) 比较:
 
@@ -24,7 +24,7 @@ SMT 灌溉触发行为失真(本项目中玉米根系 153 天始终停在 0.30m)
   玉米根系 0.30m → ~0.92m (白浆层60%/淀积层80% 穿透率下的物理合理值)
   水稻根系 0.20m → ~0.38m (犁底层40%穿透率, 符合稻田犁底层实际)
 
-用法: spac_model.py 顶部 `from modules.aquacrop_fixes import apply_patches; apply_patches()`
+用法: spac_model.py 顶部 `from modules.engine_fixes import apply_patches; apply_patches()`
 """
 
 from __future__ import annotations
@@ -220,7 +220,7 @@ def _fixed_root_development(
 
 
 def apply_patches():
-    """应用 AquaCrop-OSPy 引擎补丁(幂等)。"""
+    """应用 SPAC 连续体系引擎补丁(幂等)。"""
     if getattr(_rst.root_development, "_wutonghe_patched", False):
         return
     _rst.root_development = _fixed_root_development

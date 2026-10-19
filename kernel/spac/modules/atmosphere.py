@@ -131,7 +131,7 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_weather_df(csv_path: str, lat_rad: float, altitude: float) -> pd.DataFrame:
-    """读取实测气象 CSV 并计算 ET0，返回 AquaCrop-OSPy 所需格式。
+    """读取实测气象 CSV 并计算 ET0，返回 内核所需格式。
 
     CSV 不存在时显式报错（不生成合成数据）。
     返回 DataFrame 列：MinTemp, MaxTemp, Precipitation, ReferenceET, Date

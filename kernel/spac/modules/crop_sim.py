@@ -11,7 +11,7 @@
   (4) 籽粒产量 Y = B * f_HI （收获指数调整）
   (5) 水分胁迫：根区耗水比例触发 KSexp/KSCCx/KSCC/KSsto 响应
 
-本模块封装 AquaCrop-OSPy 的 Crop 实体构建，对接 config.crop_params 参数。
+本模块封装 SPAC 内核 的 Crop 实体构建，对接 config.crop_params 参数。
 支持作物：水稻 / 玉米
 """
 
@@ -20,7 +20,7 @@ from __future__ import annotations
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from aquacrop import Crop
+from modules.engine_core import Crop
 from config.crop_params import get_crop_preset, get_crop_params, RICE_PARAMS, CORN_PARAMS
 from config.wutonghe_config import (
     RICE_PLANTING_DATE, RICE_HARVEST_DATE,
@@ -29,7 +29,7 @@ from config.wutonghe_config import (
 
 
 def build_crop(crop: str) -> Crop:
-    """构建 AquaCrop-OSPy Crop 对象（含梧桐河灌区参数率定）。
+    """构建 SPAC 内核 Crop 对象（含梧桐河灌区参数率定）。
 
     Parameters
     ----------

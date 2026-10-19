@@ -36,7 +36,7 @@ from __future__ import annotations
 from typing import Dict, List, Tuple, Optional, Union
 
 import pandas as pd
-from aquacrop import IrrigationManagement, FieldMngt
+from modules.engine_core import IrrigationManagement, FieldMngt
 
 
 # =========================================================================== #
@@ -200,7 +200,7 @@ def _build_rice_schedule(sim_year: int, depths: List[int]) -> pd.DataFrame:
     """构建水稻固定灌水日历(method=3 所需的 DataFrame)。
 
     注: 晒田期(7/5)depth=0 表示当日不灌水, 仅作为日历节点存在。
-    AquaCrop method=3 允许 depth=0 的灌水事件(实际不灌水)。
+    内核 method=3 允许 depth=0 的灌水事件(实际不灌水)。
     """
     if len(depths) != len(RICE_IRR_DATES_MD):
         raise ValueError(f"水稻定额长度({len(depths)})与灌水日期数({len(RICE_IRR_DATES_MD)})不匹配")

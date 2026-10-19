@@ -7,13 +7,13 @@
   蒸腾、渗漏等通量，依据土壤水分平衡计算根区储水量与耗水量。
   土壤剖面分层，给定 SAT/FC/PWP/Ks/渗透系数，以 1 天为步长模拟水分运移。
 
-本模块封装 AquaCrop-OSPy 的 Soil 实体构建，对接 config.soil_params 的分层配置。
+本模块封装 SPAC 内核 的 Soil 实体构建，对接 config.soil_params 的分层配置。
 采用 'custom' 土壤 + add_layer() 显式构建多层剖面，确保层数与水力参数可控。
 """
 
 from __future__ import annotations
 
-from aquacrop import Soil
+from modules.engine_core import Soil
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,7 +23,7 @@ from config.soil_params import (
 
 
 def build_soil(crop: str) -> Soil:
-    """根据作物构建 AquaCrop-OSPy Soil 对象（custom 多层剖面）。
+    """根据作物构建 SPAC 内核 Soil 对象（custom 多层剖面）。
 
     Parameters
     ----------

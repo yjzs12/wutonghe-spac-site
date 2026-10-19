@@ -12,7 +12,7 @@ numpy>=1.26
 pandas>=2.0
 scipy>=1.11
 matplotlib>=3.8
-openpyxl>=3.1          # 导出 AquaCrop 原始 Excel
+openpyxl>=3.1          # 导出模型原始 Excel
 
 # ---------- 作物生长模型引擎 ----------
 aquacrop>=3.0

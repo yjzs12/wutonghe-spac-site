@@ -514,7 +514,7 @@ def run(crops: list[str], year: int, out_dir: Path, progress=None,
             except Exception as e:                       # noqa: BLE001
                 log(f"  ⚠ 图件生成失败 {fname}: {type(e).__name__}: {e}")
 
-    # ---- 逐日结果与 AquaCrop 原始 Excel ----
+    # ---- 逐日结果与 内核原始 Excel ----
     daily_files, excel_files = [], []
     for r in year_results:
         # 文件名用稳定档位 ID(L1–L7 / 对照 CK), 与中文显示名解耦
@@ -525,8 +525,8 @@ def run(crops: list[str], year: int, out_dir: Path, progress=None,
         except Exception as e:                           # noqa: BLE001
             log(f"  ⚠ save_csv 失败 ({tag}): {e}")
         try:
-            r.save_original_excel(str(out_dir / f"aqua_original_{tag}.xlsx"))
-            excel_files.append(f"aqua_original_{tag}.xlsx")
+            r.save_original_excel(str(out_dir / f"original_{tag}.xlsx"))
+            excel_files.append(f"original_{tag}.xlsx")
         except Exception as e:                           # noqa: BLE001
             log(f"  ⚠ save_original_excel 失败 ({tag}): {e}")
 
@@ -662,7 +662,6 @@ def probe_env() -> dict:
     add("SPAC 内核目录", KERNEL_DIR.exists(), KERNEL_DIR)
     for mod, label in [("numpy", "numpy"), ("pandas", "pandas"),
                        ("matplotlib", "matplotlib"), ("scipy", "scipy"),
-                       ("aquacrop", "aquacrop (AquaCrop-OSPy)"),
                        ("openpyxl", "openpyxl")]:
         try:
             m = __import__(mod)
