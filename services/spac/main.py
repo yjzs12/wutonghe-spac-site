@@ -29,10 +29,11 @@ if str(ROOT) not in sys.path:
 
 import os                                                   # noqa: E402
 
-from fastapi import File, Form, HTTPException, UploadFile    # noqa: E402
+from fastapi import File, Form, HTTPException, Request, UploadFile  # noqa: E402
 from fastapi.responses import JSONResponse, PlainTextResponse  # noqa: E402
 from pydantic import BaseModel, Field                        # noqa: E402
 
+from core import auth                                          # noqa: E402
 from core import service_app as sa                            # noqa: E402
 from core.config import CONFIG                                # noqa: E402
 from core.jobs import JobManager                              # noqa: E402
@@ -48,21 +49,25 @@ app = sa.make_service(TITLE, VERSION, BASE_PATH, PUBLIC_PREFIX,
                       description="土壤-作物-大气连续体耦合模拟 · 8 档灌溉方案优化")
 manager = JobManager(CONFIG.work_dir / "spac", "spac")
 
+# 登录 / 验证码 / 全站鉴权（中间件只拦 /api/* 与 /files/*）
+auth.install(app, "spac")
+
 
 # --------------------------------------------------------------------------- #
 #  气象数据
 # --------------------------------------------------------------------------- #
 @app.get(f"{BASE_PATH}/api/years")
-def years():
+def years(request: Request):
+    who = auth.viewer(request)
     try:
-        ys = engine.available_years()
+        ys = engine.available_years(who.get("user") or "")
     except Exception as e:                                    # noqa: BLE001
         return JSONResponse({"ok": False, "years": [],
                              "error": f"{type(e).__name__}: {e}"})
     start_md, end_md = engine.weather_period()
     return {"ok": True, "years": ys,
             "period": f"{start_md.replace('/', '-')} ~ {end_md.replace('/', '-')}",
-            "data_dir": str(engine.data_dir())}
+            "data_dir": str(engine.data_dir(who.get("user") or ""))}
 
 
 @app.get(f"{BASE_PATH}/api/weather_template")
@@ -79,13 +84,14 @@ def weather_template():
 
 
 @app.post(f"{BASE_PATH}/api/weather")
-async def upload_weather(file: UploadFile = File(...),
+async def upload_weather(request: Request, file: UploadFile = File(...),
                          override_era5: bool = Form(False)):
     name = Path(file.filename or "weather.csv").name
     dst = CONFIG.upload_dir / f"{int(time.time() * 1000)}_{name}"
     dst.write_bytes(await file.read())
     try:
-        return engine.import_weather(dst, override_era5=override_era5)
+        return engine.import_weather(dst, override_era5=override_era5,
+                                     owner=auth.viewer(request).get("user") or "")
     except FileExistsError as e:
         return JSONResponse({"ok": False, "need_confirm": True, "error": str(e)},
                             status_code=409)
@@ -97,9 +103,10 @@ async def upload_weather(file: UploadFile = File(...),
 
 
 @app.get(f"{BASE_PATH}/api/weather/preview")
-def weather_preview(year: int, limit: int = 12):
+def weather_preview(request: Request, year: int, limit: int = 12):
     try:
-        return engine.weather_preview(year, limit)
+        return engine.weather_preview(year, limit,
+                                      auth.viewer(request).get("user") or "")
     except Exception as e:                                    # noqa: BLE001
         return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"},
                             status_code=500)
@@ -117,27 +124,29 @@ class RunReq(BaseModel):
 
 
 @app.post(f"{BASE_PATH}/api/run")
-def run(req: RunReq):
+def run(req: RunReq, request: Request):
     crops = {"rice": ["rice"], "corn": ["corn"], "both": ["rice", "corn"]}.get(req.crop)
     if not crops:
         raise HTTPException(400, "crop 只能是 rice / corn / both")
 
     try:
-        years_avail = engine.available_years()
+        years_avail = engine.available_years(auth.viewer(request).get("user") or "")
     except Exception as e:                                    # noqa: BLE001
         raise HTTPException(500, f"内核不可用：{type(e).__name__}: {e}")
     if req.year not in years_avail:
         raise HTTPException(400, f"{req.year} 年无气象数据。可用年份："
                                  f"{'、'.join(map(str, years_avail)) or '无'}")
 
+    who = auth.viewer(request).get("user") or ""
     title = f"{req.year} 年 · {'+'.join(CROP_CN[c] for c in crops)} · {8 * len(crops)} 方案"
 
     def task(job):
         job.progress = f"{req.year} 年模拟中"
-        return engine.run(crops, req.year, job.out_dir,
+        return engine.run(crops, req.year, job.out_dir, owner=who,
                           progress=lambda msg: setattr(job, "progress", msg))
 
-    job = manager.submit(title, task, params={"year": req.year, "crop": req.crop})
+    job = manager.submit(title, task, params={"year": req.year, "crop": req.crop},
+                         owner=who)
     return {"ok": True, "job_id": job.id, "title": title,
             "n_scenarios": 8 * len(crops)}
 

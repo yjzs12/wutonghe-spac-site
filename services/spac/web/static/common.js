@@ -21,6 +21,11 @@ async function api(path, options = {}) {
     throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
   }
   const data = await res.json();
+  /* 会话过期 / 未登录：把登录框拉回来，而不是让用户对着一串 401 猜为什么 */
+  if (res.status === 401 && data && data.need_login) {
+    if (window.__authNeedLogin) window.__authNeedLogin();
+    throw new Error('请先登录');
+  }
   if (!res.ok && !(data && data.error)) throw new Error(`HTTP ${res.status}`);
   return data;
 }
@@ -38,6 +43,8 @@ const postJson = postJSON;
 
 /* ---------------- 提示 ---------------- */
 function toast(message, type = '') {
+  /* 登录遮罩期间业务接口必然 401 —— 别再叠一堆红条，用户只需要看到登录框 */
+  if (type === 'err' && window.__authPending) return;
   let wrap = $('.toast-wrap');
   if (!wrap) {
     wrap = document.createElement('div');

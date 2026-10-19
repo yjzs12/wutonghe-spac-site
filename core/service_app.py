@@ -18,7 +18,7 @@ import mimetypes
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 
 mimetypes.add_type("image/tiff", ".tif")
@@ -101,23 +101,33 @@ def mount_pages(app: FastAPI, web_dir: Path, pages: dict[str, str],
 
 
 def add_common_routes(app: FastAPI, manager, env_fn=None) -> None:
-    """任务状态 / 日志 / 产物下载 / 历史任务 / 健康检查。"""
+    """任务状态 / 日志 / 产物下载 / 历史任务 / 健康检查。
+
+    ⚠ 除 `/api/health` 外，所有路由都必须带 `Request` 并交 viewer 做归属校验：
+    任务、日志、产物是按用户名隔离的，漏一个就等于没隔离（拿到 job_id 就能读）。
+    `/api/health` 只返回版本号与队列长度，供网关探活，因此不查归属。
+    """
     base = app.state.base_path
 
+    def _viewer(request: Request) -> dict:
+        from core import auth
+        return auth.viewer(request)
+
     @app.get(f"{base}/api/job/{{job_id}}")
-    def job_status(job_id: str, offset: int = 0):
-        job = manager.get(job_id)
+    def job_status(job_id: str, request: Request, offset: int = 0):
+        job = manager.get(job_id, _viewer(request))
         if not job:
             raise HTTPException(404, "任务不存在")
         return job.snapshot(offset)
 
     @app.get(f"{base}/api/jobs")
-    def jobs_list(limit: int = 20):
-        return {"jobs": manager.recent(limit), "queued": manager.queue_len()}
+    def jobs_list(request: Request, limit: int = 20):
+        return {"jobs": manager.recent(limit, _viewer(request)),
+                "queued": manager.queue_len()}
 
     @app.get(f"{base}/api/job/{{job_id}}/log.txt")
-    def job_log(job_id: str):
-        job = manager.get(job_id)
+    def job_log(job_id: str, request: Request):
+        job = manager.get(job_id, _viewer(request))
         if not job:
             raise HTTPException(404, "任务不存在")
         return PlainTextResponse(
@@ -125,8 +135,8 @@ def add_common_routes(app: FastAPI, manager, env_fn=None) -> None:
             headers={"Content-Disposition": f'attachment; filename="log_{job_id}.txt"'})
 
     @app.get(f"{base}/files/{{job_id}}/{{relpath:path}}")
-    def job_file(job_id: str, relpath: str, download: int = 0):
-        job = manager.get(job_id)
+    def job_file(job_id: str, relpath: str, request: Request, download: int = 0):
+        job = manager.get(job_id, _viewer(request))
         if not job:
             raise HTTPException(404, "任务不存在")
         root = Path(job.out_dir).resolve()
@@ -137,7 +147,7 @@ def add_common_routes(app: FastAPI, manager, env_fn=None) -> None:
             raise HTTPException(403, "非法路径")
         if not target.is_file():
             raise HTTPException(404, f"文件不存在: {relpath}")
-        headers = {"Cache-Control": "public, max-age=3600"}
+        headers = {"Cache-Control": "private, max-age=600"}
         if download:
             headers["Content-Disposition"] = "attachment; filename*=UTF-8''" + quote(target.name)
         return FileResponse(str(target), headers=headers)

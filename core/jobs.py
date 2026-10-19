@@ -23,6 +23,8 @@ import uuid
 from pathlib import Path
 from queue import Queue
 
+from core.auth import can_see as _can_see
+
 MAX_LOG_CHARS = 4_000_000        # 单任务日志上限，超出后截断头部
 
 
@@ -54,14 +56,23 @@ class _JobWriter:
         return False
 
 
-class Job:
-    """一个模型运行任务。"""
+LEGACY_OWNER = "__legacy__"      # 加登录之前跑的历史任务：只给管理员看
 
-    def __init__(self, kind: str, title: str, out_dir: Path, params: dict | None = None):
+
+class Job:
+    """一个模型运行任务。
+
+    `owner` 是提交者的用户名。任务、日志、产物一律按 owner 过滤 —— 这是
+    「各用户互不可见」的唯一依据，任何绕过它的路由都等于没做隔离。
+    """
+
+    def __init__(self, kind: str, title: str, out_dir: Path, params: dict | None = None,
+                 owner: str = ""):
         self.id = uuid.uuid4().hex[:12]
         self.kind = kind                    # spac | crop
         self.title = title
         self.params = params or {}
+        self.owner = owner or LEGACY_OWNER
         self.out_dir = Path(out_dir)
         self.status = "queued"              # queued | running | done | failed
         self.progress = "排队中"
@@ -98,6 +109,7 @@ class Job:
             "id": self.id,
             "kind": self.kind,
             "title": self.title,
+            "owner": self.owner,
             "params": self.params,
             "status": self.status,
             "progress": self.progress,
@@ -123,7 +135,7 @@ class Job:
         except (OSError, json.JSONDecodeError):
             return None
         job = cls(d.get("kind", "?"), d.get("title", "?"), path.parent,
-                  d.get("params") or {})
+                  d.get("params") or {}, d.get("owner") or LEGACY_OWNER)
         job.id = d.get("id") or path.parent.name
         job.status = d.get("status", "done")
         job.progress = d.get("progress", "")
@@ -188,8 +200,9 @@ class JobManager:
             pass
 
     # ---- 提交 ----
-    def submit(self, title: str, fn, params: dict | None = None) -> Job:
-        job = Job(self.kind, title, self.work_dir, params)
+    def submit(self, title: str, fn, params: dict | None = None,
+               owner: str = "") -> Job:
+        job = Job(self.kind, title, self.work_dir, params, owner)
         job.out_dir = self.work_dir / job.id
         job.out_dir.mkdir(parents=True, exist_ok=True)
         with self._lock:
@@ -199,20 +212,30 @@ class JobManager:
         self._queue.put((job, fn))
         return job
 
-    def get(self, job_id: str) -> Job | None:
-        return self._jobs.get(job_id)
+    def get(self, job_id: str, viewer: dict | None = None) -> Job | None:
+        """取任务。给了 viewer 就做归属校验：别人的任务一律当「不存在」。"""
+        job = self._jobs.get(job_id)
+        if job is None:
+            return None
+        if viewer is not None and not _can_see(job.owner, viewer):
+            return None              # 注意：返回 None 而不是 403，避免泄露任务是否存在
+        return job
 
-    def recent(self, limit: int = 20) -> list[dict]:
+    def recent(self, limit: int = 20, viewer: dict | None = None) -> list[dict]:
         with self._lock:
-            ids = self._order[-limit:][::-1]
+            ids = self._order[-max(limit * 8, limit):][::-1]
         out = []
         for i in ids:
             job = self._jobs.get(i)
             if job is None:
                 continue
+            if viewer is not None and not _can_see(job.owner, viewer):
+                continue
             s = job.snapshot(0)
             s.pop("log", None)
             out.append(s)
+            if len(out) >= limit:
+                break
         return out
 
     def queue_len(self) -> int:

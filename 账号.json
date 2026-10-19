@@ -1,0 +1,43 @@
+{
+  "_说明": [
+    "梧桐河灌区模型平台 —— 内置账号表。",
+    "密码只存 PBKDF2-SHA256 的盐与摘要，本文件不含明文密码。",
+    "加人/改密码：跑 工具/生成账号.py，或手工按同样格式追加一行。",
+    "明文只存在于 账号_登录信息.txt，请自行保管，不要随部署包上传。",
+    "生成时间：2026-10-19 10:43:22"
+  ],
+  "accounts": [
+    {
+      "user": "admin",
+      "name": "管理员",
+      "role": "admin",
+      "salt": "7ba0b08f822e879b10f3cd24d2db57e8",
+      "hash": "d603f81a2f315a9b99b1d70bafc5d7bfd0377801891f4bdc2a1a00aaf0b001d7",
+      "iter": 200000
+    },
+    {
+      "user": "user1",
+      "name": "普通用户一",
+      "role": "user",
+      "salt": "ab8e33f17cfad63af879e6fc596cee10",
+      "hash": "d9680add4d53db0c3986e512a2b0041c6e5d2888e9b1d2b0ed12fc473adc3c0a",
+      "iter": 200000
+    },
+    {
+      "user": "user2",
+      "name": "普通用户二",
+      "role": "user",
+      "salt": "dd837f1bb63f0845af87f403e90dc83b",
+      "hash": "fd5902ee266d5a492eb9fc8c9b5fd5ec5a50b6f1066d2847216e91ed449d4d24",
+      "iter": 200000
+    },
+    {
+      "user": "user3",
+      "name": "普通用户三",
+      "role": "user",
+      "salt": "e8edbd5c727ee8deee81fa717e91f694",
+      "hash": "c7ef01fd9efcaa58de34195a6f915f19ee1f45f66fda2bd57889d34428313769",
+      "iter": 200000
+    }
+  ]
+}

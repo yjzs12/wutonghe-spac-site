@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -51,7 +52,7 @@ FIG_SPECS = (
 
 def bootstrap() -> None:
     """幂等初始化：字体缓存 → sys.path → 输出目录重定向 → 导入内核 → 出图样式。"""
-    global _booted, _rs, _wc
+    global _booted, _rs, _wc, _BUILTIN_DATA
     if _booted:
         return
 
@@ -73,6 +74,9 @@ def bootstrap() -> None:
 
     import run_scenarios as rs                           # noqa: N813  （会连带导入 spac_model）
     _rs, _wc = rs, wc
+    # ★ 记住内核自带的只读气象目录（era5 下载的 2023–2025）。每个用户跑模拟时
+    #   wc.DATA_DIR 会被切到自己的私有目录，这里留一份原始值当「内置年份」的来源。
+    _BUILTIN_DATA = Path(wc.DATA_DIR)
 
     style.apply()                                        # 内核设的 Windows 字体在这里被覆盖
     _booted = True
@@ -86,22 +90,98 @@ def _ensure():
 # --------------------------------------------------------------------------- #
 #  气象数据
 # --------------------------------------------------------------------------- #
-def available_years() -> list[int]:
-    """扫描内核 data 目录，返回已有气象数据的年份（era5 命名优先）。"""
+#  隔离口径
+#  --------
+#  · 内置 era5（weather_era5_2023/2024/2025）随镜像发布，**所有用户共享只读**；
+#  · 用户自己上传的 CSV 落在 work/weather/<用户名>/，只有本人可见可用；
+#  · 内核只认一个 wc.DATA_DIR，所以运行前把当前用户的私有目录激活（顺带把内置
+#    era5 复制一份进去），跑完不恢复 —— 任务队列本身就是串行的，同一时刻只有一个
+#    用户在跑，不存在互相踩。
+_BUILTIN_DATA: Path | None = None
+_RE_YEAR_CSV = re.compile(r"^weather_(?:era5_)?(\d{4})\.csv$")
+
+
+def builtin_data_dir() -> Path:
+    _ensure()
+    return _BUILTIN_DATA or Path(_wc.DATA_DIR)
+
+
+def _safe_user(owner: str) -> str:
+    """用户名直接当目录名用 → 必须先收敛（账号文件是可信的，但别留后门）。"""
+    name = re.sub(r"[^A-Za-z0-9_.-]", "_", (owner or "").strip())
+    return name or "_shared"
+
+
+def weather_private_dir(owner: str) -> Path:
+    d = Path(CONFIG.work_dir) / "weather" / _safe_user(owner)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _seed_builtin_weather(dst: Path) -> None:
+    """把内置 era5 复制进私有目录（只补缺，不覆盖用户已上传的同年数据）。"""
+    src = builtin_data_dir()
+    if not src.exists() or src.resolve() == dst.resolve():
+        return
+    for p in src.glob("weather_era5_[0-9][0-9][0-9][0-9].csv"):
+        t = dst / p.name
+        if t.exists():
+            continue
+        try:
+            import shutil
+            shutil.copyfile(p, t)
+        except OSError:
+            pass
+
+
+def activate_weather(owner: str) -> Path:
+    """把内核的气象目录切到该用户的私有目录（调用前会补上内置 era5）。"""
     _, wc = _ensure()
+    d = weather_private_dir(owner)
+    _seed_builtin_weather(d)
+    wc.DATA_DIR = d
+    return d
+
+
+def available_years(owner: str | None = None) -> list[int]:
+    """可用年份 = 内置 era5 年份 ∪ 该用户私有年份。"""
+    _ensure()
     years: dict[int, Path] = {}
-    if wc.DATA_DIR.exists():
+    src = builtin_data_dir()
+    if src.exists():
+        for p in sorted(src.glob("weather_era5_[0-9][0-9][0-9][0-9].csv")):
+            m = _RE_YEAR_CSV.match(p.name)
+            if m:
+                years.setdefault(int(m.group(1)), p)
+    if owner:
+        d = weather_private_dir(owner)
         for pattern in ("weather_era5_*.csv", "weather_*.csv"):
-            for p in sorted(wc.DATA_DIR.glob(pattern)):
-                stem = p.stem.replace("weather_era5_", "").replace("weather_", "")
-                if stem.isdigit():
-                    years.setdefault(int(stem), p)
+            for p in sorted(d.glob(pattern)):
+                m = _RE_YEAR_CSV.match(p.name)
+                if m:
+                    years[int(m.group(1))] = p      # 私有优先
     return sorted(years)
 
 
-def data_dir() -> Path:
-    _, wc = _ensure()
-    return Path(wc.DATA_DIR)
+def weather_csv_path(year: int, owner: str | None = None) -> Path | None:
+    """按「私有 era5 → 私有普通 → 内置 era5」的优先级找气象文件。"""
+    _ensure()
+    cands: list[Path] = []
+    if owner:
+        d = weather_private_dir(owner)
+        cands += [d / f"weather_era5_{year}.csv", d / f"weather_{year}.csv"]
+    src = builtin_data_dir()
+    cands += [src / f"weather_era5_{year}.csv", src / f"weather_{year}.csv"]
+    for p in cands:
+        if p.exists():
+            return p
+    return None
+
+
+def data_dir(owner: str | None = None) -> Path:
+    """内核当前生效的气象目录（给页面显示用）。"""
+    _ensure()
+    return weather_private_dir(owner) if owner else Path(_wc.DATA_DIR)
 
 
 def weather_period() -> tuple[str, str]:
@@ -184,8 +264,12 @@ def validate_weather_csv(src_path: Path):
     return df, year, n_days, expected, n_dup
 
 
-def import_weather(src_path: Path, override_era5: bool = False) -> dict:
+def import_weather(src_path: Path, override_era5: bool = False,
+                   owner: str = "") -> dict:
     """校验并落盘气象 CSV（覆盖同名年份数据）。
+
+    给了 owner 就写进**该用户的私有目录**（其他用户看不到、也用不到）；
+    否则退回内核内置目录（仅内部调用/兼容旧代码用）。
 
     override_era5=False 且同年已存在 `weather_era5_{year}.csv` 时抛 FileExistsError ——
     该文件优先级更高会屏蔽本次导入，必须先经用户确认。
@@ -193,7 +277,7 @@ def import_weather(src_path: Path, override_era5: bool = False) -> dict:
     import pandas as pd
 
     df, year, n_days, expected, n_dup = validate_weather_csv(src_path)
-    ddir = data_dir()
+    ddir = weather_private_dir(owner) if owner else data_dir()
     era5 = ddir / f"weather_era5_{year}.csv"
     had_era5 = era5.exists()
     if had_era5 and not override_era5:
@@ -231,14 +315,13 @@ def import_weather(src_path: Path, override_era5: bool = False) -> dict:
     }
 
 
-def weather_preview(year: int, limit: int = 12) -> dict:
+def weather_preview(year: int, limit: int = 12, owner: str | None = None) -> dict:
     """读回已有年份气象数据的前若干行，供页面表格预览。"""
     import pandas as pd
 
-    _, wc = _ensure()
-    path = wc.get_weather_csv_path(year)
-    p = Path(path)
-    if not p.exists():
+    _ensure()
+    p = weather_csv_path(year, owner)
+    if p is None:
         return {"ok": False, "error": f"未找到 {year} 年气象数据文件"}
     df = pd.read_csv(p, encoding="utf-8-sig")
     head = df.head(limit)
@@ -384,15 +467,18 @@ def _plot_water_requirement(day_df, crop_cn: str, year: int, path: Path) -> None
 # --------------------------------------------------------------------------- #
 #  运行
 # --------------------------------------------------------------------------- #
-def run(crops: list[str], year: int, out_dir: Path, progress=None) -> dict:
+def run(crops: list[str], year: int, out_dir: Path, progress=None,
+        owner: str = "") -> dict:
     """跑 8 方案优化并出图，把所有交付物落到 out_dir。
 
-    与桌面版 spac_app.run_year 等价；差异只在图件与数据的落盘位置 —— 这里全部
-    写进本任务的输出目录，便于 Web 端按任务隔离、直接预览与下载。
+    `owner` 决定内核读哪套气象数据：运行前把 `wc.DATA_DIR` 切到该用户私有目录，
+    这样 A 上传的气象 CSV 不会影响 B 的模拟结果。
     """
     rs, wc = _ensure()
     from config.wutonghe_config import ensure_dirs
 
+    if owner:
+        activate_weather(owner)          # ★ 必须在 ensure_dirs 之前
     ensure_dirs()
     out_dir = Path(out_dir)
     fig_dir = out_dir / "figures"
