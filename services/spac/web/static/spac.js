@@ -202,6 +202,7 @@ function clearResults() {
   $('#optimalBody').innerHTML = '<div class="empty-state">暂无</div>';
   $('#summaryBody').innerHTML = '<div class="empty-state">暂无</div>';
   $('#waterReqBody').innerHTML = '<div class="empty-state">暂无</div>';
+  if ($('#waterReqNote')) $('#waterReqNote').innerHTML = '';
   $('#fileBody').innerHTML = '<div class="empty-state">暂无</div>';
   $('#toggleWide').disabled = true;
 }
@@ -277,12 +278,42 @@ function renderResult(jobId, res) {
     });
     $('#waterReqSub').textContent =
       `${wr.year} 年 · ${wr.basis} · 月表默认折叠，点月份行展开该月逐日`;
+    renderPhenology($('#waterReqNote'), wr.crops);
   } else {
     wrBox.innerHTML = '<div class="empty-state">暂无</div>';
+    if ($('#waterReqNote')) $('#waterReqNote').innerHTML = '';
   }
 
   /* --- 文件 --- */
   renderFiles($('#fileBody'), jobId, res.files);
+}
+
+/* ---------------- 物候口径说明：移栽前的 Kc 不是作物系数 ---------------- */
+/* 模拟期固定自 04-01 起，但水稻 05-15 才移栽、玉米 04-25 才播种。
+   这段 CC=0、不灌溉，ETc 只剩裸土蒸发，Kc 会掉到 0.1 以下 —— 必须就地讲明，
+   否则「全期 Kc」会被当成作物系数引用。 */
+function renderPhenology(box, crops) {
+  if (!box) return;
+  const items = (crops || []).filter(c => c.phenology);
+  if (!items.length) { box.innerHTML = ''; return; }
+  const line = c => {
+    const p = c.phenology;
+    const start = (c.period || '').split(' ~ ')[0];
+    return `<div style="margin-bottom:7px">`
+      + `<span style="color:var(--text-2);font-weight:500">${c.name}</span>　`
+      + `模拟期自 ${start} 起，${p.planting} ${p.plant_term}、${p.emergence} 出苗。`
+      + `此前 <span style="color:var(--text-2);font-weight:500">${p.pre_days} 天</span>无作物`
+      + `（冠层覆盖度 0、无灌溉），仅裸土蒸发：`
+      + `ET0 ${fmtNum(p.pre_et0, 1)} mm / ETc ${fmtNum(p.pre_etc, 1)} mm / `
+      + `<span style="color:var(--text-2);font-weight:500">Kc ${fmtNum(p.pre_kc, 2)}</span>`
+      + `，该段 Kc 不代表作物系数。`
+      + `仅统计${p.plant_term}后 ${p.crop_days} 天：`
+      + `ET0 ${fmtNum(p.crop_et0, 1)} mm / ETc ${fmtNum(p.crop_etc, 1)} mm / `
+      + `<span style="color:var(--text-2);font-weight:500">Kc ${fmtNum(p.crop_kc, 2)}</span>。</div>`;
+  };
+  box.innerHTML =
+    `<div style="margin-bottom:4px;color:var(--text-2);font-weight:500">口径说明</div>`
+    + items.map(line).join('');
 }
 
 /* ---------------- 作物需水量：月表 + 可展开逐日 ---------------- */

@@ -139,6 +139,50 @@ figures/irrigation_schedule_*.png  灌溉制度时序对比
 figures/water_requirement_*.png    作物需水过程（正常灌溉对照）
 figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都跑时）</div>
         </details>
+        <details class="help">
+          <summary>模拟期、移栽日期与 Kc 口径</summary>
+          <div class="body">模拟期统一自 04-01 起（气象数据需覆盖到 10-15），至 09-25 收获结束，
+共 177 天。但作物真正进入田间的日期更晚：
+
+  作物   田间作业        出苗        移栽/播种前空天数
+  水稻   05-15 移栽     05-17      44 天
+  玉米   04-25 播种     04-30      24 天
+
+这段"有模拟、无作物"的区间里：冠层覆盖度 = 0、田间水层 = 0、灌溉量 = 0，
+ETc 只剩裸土蒸发（0.3 ~ 2 mm/d，而 ET0 有 5 ~ 7.5 mm/d），
+Kc = ETc/ET0 因此会掉到 0.1 以下并逐日大幅摆动 ——
+它是「裸土蒸发系数」，不是作物系数，引用时务必剔除。
+
+「作物需水量」表按两种口径给出：
+  全生育期合计   自 04-01 起全部天数，与上方月度表逐行相加一致
+  仅作物期       自移栽 / 播种日起累计，才可与 FAO-56 作物系数对照
+页面在表格下方按作物分别列出这两个口径的数字。
+
+Kc 本身不是模型输入，而是 ETc/ET0 派生出来的诊断量：
+  Kc = Ks·Kcb·CCadj + Kr·Kex·(1−CCadj)
+Kcb(水稻 1.10 / 玉米 1.05) 与 Kex(1.10) 都是常数参数，
+逐日变化由冠层覆盖度 CC、水分胁迫 Ks、蒸发折减 Kr 承载。
+
+另注：本模型的 ETc 含水分胁迫系数 Ks，实质是实际蒸散量 ETa。
+      CK 方案下接近潜在 ETc；低水档（L1 / L2）会明显低于潜在值。</div>
+        </details>
+        <details class="help">
+          <summary>预览与下载的限制</summary>
+          <div class="body">表格类产物（xlsx / csv / tsv）的「预览」不是 Excel 在线版，而是服务端
+读表后渲染的一页静态 HTML：
+
+  行数     仅前 300 行，超出部分显示"≥300 行"
+  列数     仅前 60 列
+  文件大小 超过 60 MB 不提供预览，只保留下载
+  xlsx     多工作表会全部列出，每表各自截断到 300 行
+  .xls     老格式不支持（缺少解析引擎），请下载后用 Excel 打开
+
+预览页是只读快照：不能排序、筛选、改单元格、算公式，也不含图表与单元格格式
+（合并单元格、颜色、条件格式都会丢失）。需要计算或二次分析请下载原文件。
+
+图片 / PDF / TXT 由浏览器原生打开，不受上述限制；
+逐日结果（daily_*.csv，通常 177 行）可完整预览。</div>
+        </details>
       </div>
 
     </div>
@@ -186,6 +230,7 @@ figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都�
             <span class="sub" id="waterReqSub">逐月 ET0 / ETc / Kc / 降雨 / 灌溉</span>
           </div>
           <div class="card-body" id="waterReqBody"><div class="empty-state">暂无</div></div>
+          <div id="waterReqNote" style="padding:0 16px 14px;font-size:12px;color:var(--text-3);line-height:1.7"></div>
         </div>
 
         <div class="card" id="fileCard">
@@ -194,6 +239,15 @@ figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都�
             <span class="sub">点击文件名下载</span>
           </div>
           <div class="card-body" id="fileBody"><div class="empty-state">暂无</div></div>
+          <div style="padding:0 16px 14px;font-size:12px;color:var(--text-3);line-height:1.7">
+            <span style="color:var(--text-2);font-weight:500">预览限制</span>　
+            表格类文件（xlsx / csv / tsv）的「预览」由服务端转换成静态 HTML 表格：
+            只显示<b style="font-weight:500;color:var(--text-2)">前 300 行、前 60 列</b>，
+            单文件超过 <b style="font-weight:500;color:var(--text-2)">60 MB</b> 不再提供预览；
+            预览页只读，不支持排序、筛选、公式计算与编辑，也无法看到被截断的后续行。
+            <b style="font-weight:500;color:var(--text-2)">.xls 老格式不支持预览</b>，请直接下载。
+            图片 / PDF / TXT 由浏览器原生打开，不受上述限制。
+          </div>
         </div>
 
       </div>

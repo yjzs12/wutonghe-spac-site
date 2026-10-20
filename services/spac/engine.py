@@ -356,6 +356,12 @@ def water_requirement(results, crop: str, year: int,
 
     rs, wc = _ensure()
     from modules.atmosphere import build_weather_df
+    # 生育期与出苗天数取自内核配置，避免在页面侧硬编码日期
+    from config.wutonghe_config import RICE_PLANTING_DATE, CORN_PLANTING_DATE
+    from config.crop_params import RICE_PARAMS, CORN_PARAMS
+    _PLANTING = {"rice": RICE_PLANTING_DATE, "corn": CORN_PLANTING_DATE}
+    _EMERGENCE_CD = {"rice": RICE_PARAMS.get("EmergenceCD"),
+                     "corn": CORN_PARAMS.get("EmergenceCD")}
 
     ck = next((r for r in results
                if r.crop == crop and r.label == rs.NORMAL_LABEL), None)
@@ -392,6 +398,40 @@ def water_requirement(results, crop: str, year: int,
     rows.append(["全生育期合计", round(tot.et0, 1), round(tot.etc, 1),
                  _kc(tot.etc, tot.et0), round(tot.prcp, 1), round(tot.irr, 1)])
 
+    # 物候口径：模拟期固定从 04-01 起，但水稻 05-15 才移栽、玉米 04-25 才播种，
+    # 出苗还要再等 EmergenceCD 天。这段"有模拟、无作物"的区间里冠层覆盖度为 0、
+    # 也不灌溉，ETc 只剩裸土蒸发，Kc=ETc/ET0 会掉到 0.1 以下且逐日大幅摆动 ——
+    # 它是**裸土蒸发系数**，不是作物系数。必须把这段单独算出来并在页面上讲明，
+    # 否则「全期 Kc」会被误读成作物系数（2026-10-20 核查结论）。
+    plant_md = _PLANTING.get(crop)
+    phenology = None
+    if plant_md:
+        try:
+            _md = str(plant_md).replace("-", "/").split("/")
+            p_dt = pd.Timestamp(year=int(year), month=int(_md[0]), day=int(_md[1]))
+            emerg_days = int(_EMERGENCE_CD.get(crop, 0) or 0)
+            # AquaCrop 把移栽/播种当日记为第 1 天，故出苗日 = 移栽日 + (EmergenceCD-1)
+            e_dt = p_dt + pd.Timedelta(days=max(emerg_days - 1, 0))
+            pre = m[m["日期"] < p_dt]
+            post = m[m["日期"] >= p_dt]
+            phenology = {
+                "planting": p_dt.strftime("%m-%d"),
+                "emergence": e_dt.strftime("%m-%d"),
+                "plant_term": "移栽" if crop == "rice" else "播种",
+                "pre_days": int(len(pre)),
+                "pre_et0": round(float(pre["ReferenceET"].sum()), 1),
+                "pre_etc": round(float(pre["蒸腾蒸发量(mm)"].sum()), 1),
+                "pre_kc": _kc(pre["蒸腾蒸发量(mm)"].sum(), pre["ReferenceET"].sum())
+                if len(pre) else None,
+                "crop_days": int(len(post)),
+                "crop_et0": round(float(post["ReferenceET"].sum()), 1),
+                "crop_etc": round(float(post["蒸腾蒸发量(mm)"].sum()), 1),
+                "crop_kc": _kc(post["蒸腾蒸发量(mm)"].sum(), post["ReferenceET"].sum())
+                if len(post) else None,
+            }
+        except Exception as e:                           # noqa: BLE001
+            log(f"  ⚠ 物候口径统计失败: {type(e).__name__}: {e}")
+
     # 逐日明细：按月份分组。页面默认只显示月表，点击月份行才展开该月逐日，
     # 这样既拿到日步长数据，又不会把页面拉长。
     daily_by_month: dict[int, list] = {}
@@ -409,6 +449,7 @@ def water_requirement(results, crop: str, year: int,
         "crop": crop,
         "name": rs.CROP_CN[crop],
         "period": f"{m['日期'].iloc[0]:%m-%d} ~ {m['日期'].iloc[-1]:%m-%d}",
+        "phenology": phenology,
         "monthly": {
             "columns": ["时段", "参考需水量ET0(mm)", "作物需水量ETc(mm)",
                         "作物系数Kc", "降雨量(mm)", "灌水量(mm)"],
