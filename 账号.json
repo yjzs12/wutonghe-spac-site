@@ -4,11 +4,11 @@
     "密码只存 PBKDF2-SHA256 的盐与摘要，本文件不含明文密码。",
     "加人/改密码：跑 工具/生成账号.py，或手工按同样格式追加一行。",
     "明文只存在于 账号_登录信息.txt，请自行保管，不要随部署包上传。",
-    "生成时间：2026-10-19 10:43:22"
+    "命名：管理员 HohaiNongGongYuan；普通用户 Hohai+3 位随机。改于 2026-10-20 10:55:17"
   ],
   "accounts": [
     {
-      "user": "admin",
+      "user": "HohaiNongGongYuan",
       "name": "管理员",
       "role": "admin",
       "salt": "7ba0b08f822e879b10f3cd24d2db57e8",
@@ -16,7 +16,7 @@
       "iter": 200000
     },
     {
-      "user": "user1",
+      "user": "HohaiWP4",
       "name": "普通用户一",
       "role": "user",
       "salt": "ab8e33f17cfad63af879e6fc596cee10",
@@ -24,7 +24,7 @@
       "iter": 200000
     },
     {
-      "user": "user2",
+      "user": "HohaiSJ7",
       "name": "普通用户二",
       "role": "user",
       "salt": "dd837f1bb63f0845af87f403e90dc83b",
@@ -32,7 +32,7 @@
       "iter": 200000
     },
     {
-      "user": "user3",
+      "user": "Hohai42H",
       "name": "普通用户三",
       "role": "user",
       "salt": "e8edbd5c727ee8deee81fa717e91f694",
