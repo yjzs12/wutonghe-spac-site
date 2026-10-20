@@ -154,6 +154,15 @@ function fileUrl(jobId, rel, download = false) {
   return download ? u + '?download=1' : u;
 }
 
+/* 表格类产物浏览器无法内联打开（xlsx 的 MIME 一律被交给下载器），
+   交给服务端转 HTML：?preview=1。图片 / PDF / TXT 浏览器原生支持，不加参数。 */
+const TABLE_EXT = ['xlsx', 'xlsm', 'csv', 'tsv'];
+function previewUrl(jobId, rel) {
+  const u = fileUrl(jobId, rel);
+  const ext = (rel.split('.').pop() || '').toLowerCase();
+  return TABLE_EXT.includes(ext) ? u + '?preview=1' : u;
+}
+
 function renderFiles(container, jobId, files) {
   if (typeof container === 'string') container = $(container);
   if (!files || !files.length) {
@@ -184,7 +193,7 @@ function renderFiles(container, jobId, files) {
     const open = document.createElement('a');
     open.className = 'btn btn-sm';
     open.textContent = '预览';
-    open.href = fileUrl(jobId, rel);
+    open.href = previewUrl(jobId, rel);
     open.target = '_blank';
     open.rel = 'noopener';
     item.appendChild(open);
