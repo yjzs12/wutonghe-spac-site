@@ -37,7 +37,24 @@
             <input id="authUser" name="username" autocomplete="username" spellcheck="false" required>
           </label>
           <label class="auth-field">密码
-            <input id="authPwd" name="password" type="password" autocomplete="current-password" required>
+            <span class="auth-pwd">
+              <input id="authPwd" name="password" type="password" autocomplete="current-password" required>
+              <button class="auth-eye" id="authEye" type="button"
+                      aria-controls="authPwd" aria-pressed="false" aria-label="显示密码" title="显示密码">
+                <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M2 12s3.6-6.6 10-6.6S22 12 22 12s-3.6 6.6-10 6.6S2 12 2 12z"/>
+                  <circle cx="12" cy="12" r="2.7"/>
+                </svg>
+                <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 3l18 18"/>
+                  <path d="M10.6 6.1A10.6 10.6 0 0 1 12 6c6.4 0 10 6 10 6a17.9 17.9 0 0 1-3.3 3.9"/>
+                  <path d="M6.6 7.7C3.9 9.6 2 12 2 12s3.6 6.6 10 6.6c1.5 0 2.9-.4 4.1-1"/>
+                  <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>
+                </svg>
+              </button>
+            </span>
           </label>
           <label class="auth-field">验证码
             <span class="auth-cap">
@@ -60,8 +77,36 @@
     mask.style.display = 'flex';
     window.__authPending = true;
     document.documentElement.classList.add('auth-locked');
+    resetEye();                            // 每次弹回登录框都回到「隐藏密码」状态
     loadCaptcha();
     setTimeout(() => { const u = document.getElementById('authUser'); if (u) u.focus(); }, 60);
+  }
+
+  /* 密码可见性：默认隐藏，点右侧小眼睛切换 */
+  function resetEye() {
+    const pwd = document.getElementById('authPwd');
+    const eye = document.getElementById('authEye');
+    if (pwd) pwd.type = 'password';
+    if (eye) {
+      eye.classList.remove('is-on');
+      eye.setAttribute('aria-pressed', 'false');
+      eye.setAttribute('aria-label', '显示密码');
+      eye.title = '显示密码';
+    }
+  }
+
+  function toggleEye(btn) {
+    const pwd = document.getElementById('authPwd');
+    if (!pwd) return;
+    const show = pwd.type === 'password';
+    pwd.type = show ? 'text' : 'password';
+    btn.classList.toggle('is-on', show);
+    btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+    btn.setAttribute('aria-label', show ? '隐藏密码' : '显示密码');
+    btn.title = show ? '隐藏密码' : '显示密码';
+    const pos = pwd.value.length;          // 切换后光标归位到末尾
+    pwd.focus();
+    try { pwd.setSelectionRange(pos, pos); } catch (e) { /* 部分浏览器不支持则忽略 */ }
   }
 
   function hideMask() {
@@ -171,7 +216,10 @@
   document.addEventListener('DOMContentLoaded', boot);
 
   document.addEventListener('click', function (e) {
-    if (e.target && e.target.id === 'authCapImg') loadCaptcha();
+    if (!e.target || !e.target.closest) return;
+    if (e.target.id === 'authCapImg') loadCaptcha();
+    const eye = e.target.closest('#authEye');
+    if (eye) toggleEye(eye);
   });
   document.addEventListener('submit', function (e) {
     if (e.target && e.target.id === 'authForm') submit(e);

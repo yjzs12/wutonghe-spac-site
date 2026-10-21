@@ -502,6 +502,22 @@ html.auth-locked, html.auth-locked body { overflow: hidden; }
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: #fff; object-fit: cover;
 }
+/* 密码框：右侧内嵌「显示/隐藏」按钮 */
+.auth-pwd { position: relative; display: block; }
+.auth-pwd input { width: 100%; padding-right: 40px; }
+.auth-eye {
+  position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+  width: 28px; height: 28px; padding: 0; border: 0; border-radius: 7px;
+  background: transparent; color: var(--text-3); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: color .15s, background .15s;
+}
+.auth-eye:hover { color: var(--brand); background: var(--brand-soft); }
+.auth-eye:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.auth-eye svg { width: 17px; height: 17px; display: block; }
+.auth-eye .eye-off { display: none; }
+.auth-eye.is-on .eye-open { display: none; }
+.auth-eye.is-on .eye-off { display: block; }
 
 .auth-err { min-height: 18px; font-size: 12.5px; color: var(--err); line-height: 1.45; }
 .auth-submit { height: 40px; font-size: 14px; font-weight: 600; letter-spacing: .08em; }
