@@ -34,6 +34,7 @@ def penman_montheith_et0(
     tmin: np.ndarray, tmax: np.ndarray,
     wind: np.ndarray, rh: np.ndarray, rs: np.ndarray,
     doy: np.ndarray, lat_rad: float, altitude: float,
+    tdew: np.ndarray | None = None,
 ) -> np.ndarray:
     """FAO-56 Penman-Monteith 日尺度参考蒸散量。
 
@@ -46,6 +47,8 @@ def penman_montheith_et0(
     doy        : 年内日序 (1..365)
     lat_rad    : 纬度 (弧度)
     altitude   : 海拔 (m)
+    tdew       : 逐日露点温度 (℃)。给定时直接按 es(Tdew) 计算实际水汽压，
+                 比 FAO-56 的 es(Tmin)*RH/100 近似更准确；缺省时退回原近似。
     Returns
     -------
     et0 : 逐日参考蒸散量 (mm/day)
@@ -57,9 +60,16 @@ def penman_montheith_et0(
         np.exp(17.27 * tmax / (tmax + 237.3)) +
         np.exp(17.27 * tmin / (tmin + 237.3))
     ) * 0.5
-    # 实际水汽压 ea = es(Tmin) * RH/100 （FAO 推荐 Tmin 下的饱和压近似露点）
-    ea = 0.6108 * np.exp(17.27 * tmin / (tmin + 237.3)) * (rh / 100.0)
+    # 实际水汽压 ea：
+    #   (a) 有露点 → 直接 es(Tdew)，物理上精确
+    #   (b) 无露点 → FAO-56 近似 es(Tmin)*RH/100
+    if tdew is not None:
+        ea = 0.6108 * np.exp(17.27 * tdew / (tdew + 237.3))
+        ea = np.minimum(ea, es)          # 物理约束：ea 不能超过 es
+    else:
+        ea = 0.6108 * np.exp(17.27 * tmin / (tmin + 237.3)) * (rh / 100.0)
     vpd = np.clip(es - ea, 0.0, None)
+
 
     # —— 饱和水汽压曲线斜率 Δ (kPa/℃) ——
     delta = 4098.0 * (0.6108 * np.exp(17.27 * tmean / (tmean + 237.3))) / (tmean + 237.3) ** 2
@@ -119,6 +129,7 @@ _COL_ALIASES = {
     "风速": "Wind", "wind": "Wind", "u2": "Wind",
     "相对湿度": "RH", "湿度": "RH", "rh": "RH", "humidity": "RH",
     "太阳辐射": "Rs", "辐射": "Rs", "rs": "Rs", "solar": "Rs",
+    "露点温度": "Tdew", "露点": "Tdew", "tdew": "Tdew", "dewpoint": "Tdew",
 }
 
 
@@ -151,10 +162,11 @@ def build_weather_df(csv_path: str, lat_rad: float, altitude: float) -> pd.DataF
             raise KeyError(f"气象 CSV 缺少列: {col}（现有列: {list(df.columns)}）")
 
     doy = df["Date"].dt.dayofyear.to_numpy()
+    tdew = df["Tdew"].to_numpy() if "Tdew" in df.columns else None
     et0 = penman_montheith_et0(
         df["Tmin"].to_numpy(), df["Tmax"].to_numpy(),
         df["Wind"].to_numpy(), df["RH"].to_numpy(), df["Rs"].to_numpy(),
-        doy, lat_rad, altitude,
+        doy, lat_rad, altitude, tdew=tdew,
     )
     df["Et0"] = et0
     print(f"[大气交互模块] 已读取实测气象数据: {csv_path}  共 {len(df)} 天")
