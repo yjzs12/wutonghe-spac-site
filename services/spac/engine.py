@@ -87,6 +87,16 @@ def _ensure():
     return _rs, _wc
 
 
+def n_schemes(crop: str) -> int:
+    """某作物的灌溉方案数（正常灌溉对照 CK + 水量梯度档位）。
+
+    从内核实时取，**不要在任何地方硬编码档位数** —— 之前写死的 8 在
+    「7 档改 5 档」后全部失效，页面标题和方案数会与实际表格不一致。
+    """
+    rs, _ = _ensure()
+    return len(rs.get_smt_schemes(crop))
+
+
 # --------------------------------------------------------------------------- #
 #  气象数据
 # --------------------------------------------------------------------------- #
@@ -613,7 +623,8 @@ def run(crops: list[str], year: int, out_dir: Path, progress=None,
 
     log = print
     log("#" * 62)
-    log(f"#  {year} 年 | {' + '.join(rs.CROP_CN[c] for c in crops)} | 共 {8 * len(crops)} 方案")
+    log(f"#  {year} 年 | {' + '.join(rs.CROP_CN[c] for c in crops)} | "
+        f"共 {sum(n_schemes(c) for c in crops)} 方案")
     log("#" * 62)
 
     year_results = []
@@ -644,7 +655,7 @@ def run(crops: list[str], year: int, out_dir: Path, progress=None,
     # ---- 逐日结果与 内核原始 Excel ----
     daily_files, excel_files = [], []
     for r in year_results:
-        # 文件名用稳定档位 ID(L1–L7 / 对照 CK), 与中文显示名解耦
+        # 文件名用稳定档位 ID(L1–L5 / 对照 CK), 与中文显示名解耦
         tag = f"{r.crop}_{rs.scheme_id(r.label)}_{year}"
         try:
             r.save_csv(str(out_dir / f"daily_{tag}.csv"))

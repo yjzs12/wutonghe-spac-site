@@ -128,6 +128,7 @@ class SPACCropModel:
         self.depths = config.depths
         self.scheme_type = config.scheme_type
         self.model: Optional[SimEngine] = None
+        self.controller = None          # 水层调控控制器(mode='wlayer' 时非空)
         self.weather_df: Optional[pd.DataFrame] = None
 
     # ---------------- 输入接口 ---------------- #
@@ -152,9 +153,10 @@ class SPACCropModel:
         # 3) 作物模拟模块
         crop = build_crop(self.crop)
         # 4) 灌溉管理模块 + 田间管理（水稻田埂）
-        #    mode='normal': 正常灌溉对照(固定日历)
-        #    mode='paddy' : 水稻水层管理方案(固定日历 + 指定定额)
-        #    mode='smt'   : 玉米 SMT 自动调控
+        #    mode='wlayer'  : 水层调控(按生育阶段上下限闭环反馈灌水) —— 水稻全部 6 个方案
+        #    mode='normal'  : 固定日历对照 —— 仅玉米在用；水稻旧日历已停用, 保留作回退
+        #    mode='paddy'   : 【旧】水稻水层管理(固定日历 + 指定定额), 保留作回退
+        #    mode='smt'     : 玉米 SMT 自动调控
         irrigation = build_irrigation(self.crop, self.smt, self.mode,
                                       depths=self.depths,
                                       sim_year=self.cfg.sim_year)
@@ -194,7 +196,19 @@ class SPACCropModel:
         # 关键：必须 till_termination=True 才会跑完整个模拟期；
         # 默认 num_steps=1 只跑 1 天，且 outputs 仅在 model_is_finished 时
         # 才被 outputs_when_model_is_finished 转为 DataFrame。
-        self.model.run_model(till_termination=True)
+        if self.mode == "wlayer":
+            from modules.paddy_control import (
+                PaddyLayerController, install, uninstall, describe_bands,
+            )
+            self.controller = PaddyLayerController(
+                self.smt, app_eff=self._irr.AppEff, max_irr=self._irr.MaxIrr)
+            print("  水层上下限: " + describe_bands(self.smt))
+            install(self.controller)
+        try:
+            self.model.run_model(till_termination=True)
+        finally:
+            if self.mode == "wlayer":
+                uninstall()
         print("  模拟完成。")
         return self
 
@@ -361,9 +375,10 @@ def run_simulation(crop: str, label: str, smt: Optional[list] = None,
 
 
 if __name__ == "__main__":
-    # 自检：水稻正常灌溉对照（默认 SIM_YEAR）
-    res = run_simulation("rice", "正常灌溉对照", mode="normal",
-                        scheme_type="正常灌溉对照")
+    # 自检：水稻正常灌溉对照（默认 SIM_YEAR）—— 2026-10-21 起走官方规程上下限
+    from modules.paddy_control import bands_for_ck
+    res = run_simulation("rice", "正常灌溉对照", smt=bands_for_ck(),
+                        mode="wlayer", scheme_type="正常灌溉对照")
     print("\n=== 逐日输出（前5行，对应大纲表3） ===")
     print(res.daily.head())
     print("\n=== 汇总 ===")

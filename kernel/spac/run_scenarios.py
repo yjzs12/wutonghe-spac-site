@@ -5,12 +5,11 @@ SPAC 作物生长模型 —— SMT 灌溉制度优化运行器
 对应大纲 2.7 模型运行及接口设置 + 灌溉制度优化：
 
 设计:
-  2 种作物(水稻/玉米) × 2 年份(2024/2025) × 8 方案(正常灌溉+7档SMT) = 32 次模拟
-  7 档方案按灌水量由低到高排列(与 modules.irrigation.SCHEME_LABELS 一致):
-    L1 极低水量 → L2 低水量 → L3 中低水量 → L4 适宜水量
-    → L5 较高水量 → L6 高水量 → L7 超高水量
+  2 种作物(水稻/玉米) × 3 年份 × 6 方案(正常灌溉 + 5 档) = 36 次模拟
+  5 档方案按灌水量由低到高排列(与 modules.irrigation.SCHEME_LABELS 一致):
+    L1 雨养型 → L2 低水量 → L3 中低水量 → L4 适宜水量 → L5 较高水量
   体现灌溉制度优化过程(最优点出现在中间档"适宜水量"附近,而非首个方案)。
-  通过设定不同生育期 SMT 灌溉下限(从极低水量到超高水量),
+  通过设定不同生育阶段的水层上下限 / SMT 阈值(从雨养型到较高水量),
   得出不同灌水量时的产量,绘制产量-灌水量响应曲线,
   寻找边际产量拐点(产量达 95% 最大值时的最小灌水量)即为经济最优灌溉制度。
 
@@ -49,6 +48,7 @@ from spac_model import run_simulation, SimulationResult
 from modules.irrigation import (
     get_smt_schemes, NORMAL_LABEL, SCHEME_LABELS, SCHEME_IDS, scheme_id,
 )
+from modules.paddy_control import describe_bands
 
 CROPS = ["rice", "corn"]
 CROP_CN = {"rice": "水稻", "corn": "玉米"}
@@ -57,8 +57,8 @@ CROP_CN = {"rice": "水稻", "corn": "玉米"}
 def run_crop_optimization(crop: str, sim_year: int) -> List[SimulationResult]:
     """对单个作物在指定年份运行全部灌溉方案。
 
-    水稻: 正常灌溉对照 + 7档水层管理方案
-    玉米: 正常灌溉对照 + 7档 SMT 调控方案
+    水稻: 正常灌溉对照 + 5 档水层调控方案
+    玉米: 正常灌溉对照 + 5 档 SMT 调控方案
     """
     schemes = get_smt_schemes(crop)
     weather_csv = get_weather_csv_path(sim_year)
@@ -69,6 +69,10 @@ def run_crop_optimization(crop: str, sim_year: int) -> List[SimulationResult]:
         # 打印方案信息
         if mode == "normal":
             info = "(固定日历)"
+        elif mode == "wlayer":
+            # 水稻 CK 自方案 A 起也走 wlayer, 加 [对照] 前缀与优化档区分
+            prefix = "[对照] " if scheme_type == "正常灌溉对照" else ""
+            info = prefix + "水层上下限: " + describe_bands(smt)
         elif mode == "paddy":
             info = f"定额={depths} 合计={sum(depths)}mm"
         else:  # smt
@@ -81,7 +85,7 @@ def run_crop_optimization(crop: str, sim_year: int) -> List[SimulationResult]:
             irr = res.summary.get("累计灌溉量(mm)", 0)
             wue = res.summary.get("水分利用效率(kg/m³)", 0)
             print(f"    产量={y:.2f} t/ha  灌溉量={irr:.1f} mm  WUE={wue:.2f} kg/m³")
-            # 文件名用稳定英文档位 ID(L1–L7 / 对照 CK), 与中文显示名解耦
+            # 文件名用稳定英文档位 ID(L1–L5 / 对照 CK), 与中文显示名解耦
             tag = f"{crop}_{scheme_id(label)}_{sim_year}"
             # 先加入结果列表, 再逐个保存 —— 文件被 Excel 锁定时
             # 不影响该方案计入汇总表
@@ -108,12 +112,18 @@ def build_optimization_table(results: List[SimulationResult], sim_year: int) -> 
     for r in results:
         irr = r.summary.get("累计灌溉量(mm)", 0)
         yld = r.summary.get("最终籽粒产量(t/ha)", 0)
-        # 灌溉参数列: SMT 方案显示阈值, 水层管理方案显示定额合计, 正常灌溉显示"固定日历"
+        # 灌溉参数列: SMT 方案显示阈值; 水层调控显示阶段上下限;
+        #   正常灌溉对照按作物区分 —— 水稻自方案 A(2026-10-21) 起也走水层调控,
+        #   玉米仍是固定日历 200mm。
         if r.scheme_type == "SMT调控":
             param = f"SMT={r.smt}"
+        elif r.scheme_type == "水层调控":
+            param = describe_bands(r.smt)
         elif r.scheme_type == "水层管理":
             param = f"定额={r.depths} 合计={sum(r.depths)}mm"
-        else:  # 正常灌溉对照
+        elif r.scheme_type == "正常灌溉对照" and r.smt:
+            param = "对照·" + describe_bands(r.smt)
+        else:  # 正常灌溉对照(玉米) —— 固定日历
             param = "固定日历"
         rows.append({
             "年份": sim_year,
@@ -139,13 +149,13 @@ def find_optimal(summary: pd.DataFrame) -> pd.DataFrame:
     经济最优定义: 产量达到 95% 最大产量时的最小灌水量
     (即边际产量拐点,继续灌溉增产不显著)
 
-    说明: 通过"方案类型"列识别优化方案(水层管理 / SMT调控),
+    说明: 通过"方案类型"列识别优化方案(水层调控 / 水层管理 / SMT调控),
           排除正常灌溉对照, 在优化方案中寻找拐点。
     """
     optimal_rows = []
     for crop_cn, sub in summary.groupby("作物"):
-        # 在优化方案(水层管理 / SMT调控)中寻找最优,排除正常灌溉对照
-        opt_only = sub[sub["方案类型"].isin(["水层管理", "SMT调控"])].copy()
+        # 在优化方案(水层调控 / 水层管理 / SMT调控)中寻找最优,排除正常灌溉对照
+        opt_only = sub[sub["方案类型"].isin(["水层调控", "水层管理", "SMT调控"])].copy()
         if opt_only.empty:
             continue
         opt_only = opt_only.sort_values("累计灌溉量(mm)")
@@ -178,17 +188,17 @@ def plot_yield_irrigation_curve(results: List[SimulationResult], crop: str,
                                   sim_year: int, savepath: str):
     """绘制产量-灌水量响应曲线(灌溉制度优化核心图)。
 
-    水稻: 7档水层管理方案(不显示正常灌溉对照)
-    玉米: 7档 SMT 调控方案(不显示正常灌溉对照)
+    水稻: 5 档水层调控方案(不显示正常灌溉对照)
+    玉米: 5 档 SMT 调控方案(不显示正常灌溉对照)
     点标注: 玉米标SMT阈值, 水稻标定额合计
     """
     if not results:
         return
     fig, ax1 = plt.subplots(figsize=(12, 7))
 
-    # 仅保留优化方案(水层管理/SMT调控), 不显示正常灌溉对照
+    # 仅保留优化方案(水层调控/水层管理/SMT调控), 不显示正常灌溉对照
     opt_res = sorted(
-        [r for r in results if r.scheme_type in ("水层管理", "SMT调控")],
+        [r for r in results if r.scheme_type in ("水层调控", "水层管理", "SMT调控")],
         key=lambda r: r.summary.get("累计灌溉量(mm)", 0)
     )
 
@@ -202,22 +212,16 @@ def plot_yield_irrigation_curve(results: List[SimulationResult], crop: str,
     yld_opt = [r.summary.get("最终籽粒产量(t/ha)", 0) for r in opt_res]
     wue_opt = [r.summary.get("水分利用效率(kg/m³)", 0) for r in opt_res]
 
-    # 点标注: 玉米用SMT阈值, 水稻用定额合计
+    # 点标注: 玉米用SMT阈值, 水稻标该档实际累计灌水量
     def _point_label(r: SimulationResult) -> str:
-        if crop == "rice":
-            # 水稻: 显示定额合计
-            total = sum(r.depths) if r.depths else 0
-            return f"{total}mm"
-        else:
-            # 玉米: 显示SMT阈值
-            if r.smt:
-                return f"SMT{r.smt}"
-            return r.label
+        # 横轴就是累计灌水量，标注统一用「实际灌水量」；
+        # SMT 阈值 / 水层上下限等设计参数见汇总表"灌溉参数"列，图上不再重复。
+        return f"{r.summary.get('累计灌溉量(mm)', 0):.0f}"
 
     labels_opt = [_point_label(r) for r in opt_res]
 
     # 曲线标签按作物类型选择
-    curve_label = ("水层管理方案产量" if crop == "rice" else "SMT方案产量")
+    curve_label = ("水层调控方案产量" if crop == "rice" else "SMT方案产量")
     ax1.plot(irr_opt, yld_opt, "o-", color="seagreen", linewidth=2.2, markersize=10,
              label=curve_label, zorder=3)
     ax1.set_xlabel("累计灌溉量 (mm)", fontsize=12)
@@ -225,10 +229,11 @@ def plot_yield_irrigation_curve(results: List[SimulationResult], crop: str,
     ax1.tick_params(axis="y", labelcolor="seagreen")
     ax1.grid(True, alpha=0.3)
 
-    # 标注每个点(用SMT阈值或定额合计)
-    for x, y, lab in zip(irr_opt, yld_opt, labels_opt):
+    # 标注每个点的实际灌水量（相邻点距离过近时上下交替，避免文字重叠）
+    for i, (x, y, lab) in enumerate(zip(irr_opt, yld_opt, labels_opt)):
+        too_close = i > 0 and abs(x - irr_opt[i - 1]) < 40
         ax1.annotate(lab, (x, y), textcoords="offset points",
-                     xytext=(8, 8), fontsize=8)
+                     xytext=(8, -18 if too_close else 8), fontsize=8)
 
     # 水稻: 拉长x轴范围以体现产量变化(水层管理产量变化幅度小)
     if crop == "rice":
@@ -248,7 +253,7 @@ def plot_yield_irrigation_curve(results: List[SimulationResult], crop: str,
     ax2.tick_params(axis="y", labelcolor="coral")
 
     ax1.legend(loc="upper left", fontsize=10)
-    scheme_desc = "水层管理" if crop == "rice" else "SMT调控"
+    scheme_desc = "水层调控" if crop == "rice" else "SMT调控"
     plt.title(f"{CROP_CN[crop]} 产量-灌水量响应曲线（{sim_year} 年, {scheme_desc}）",
               fontsize=14, fontweight="bold")
     fig.tight_layout()
@@ -260,7 +265,7 @@ def plot_yield_irrigation_curve(results: List[SimulationResult], crop: str,
 def plot_multi_crop_comparison(all_summary: pd.DataFrame, sim_year: int, savepath: str):
     """两作物产量-灌水量对比图。
 
-    水稻用"水层管理"方案, 玉米用"SMT调控"方案, 均通过方案类型列识别。
+    水稻用"水层调控"方案, 玉米用"SMT调控"方案, 均通过方案类型列识别。
     """
     fig, ax = plt.subplots(figsize=(12, 7))
     colors = {"水稻": "seagreen", "玉米": "orange"}
@@ -326,14 +331,14 @@ def plot_water_dynamics(results: List[SimulationResult], crop: str,
 
 def plot_irrigation_schedule(results: List[SimulationResult], crop: str,
                                sim_year: int, savepath: str):
-    """绘制灌溉制度时序图: 对比7档优化方案的每日灌溉量与累积灌溉量。
+    """绘制灌溉制度时序图: 对比 5 档优化方案的每日灌溉量与累积灌溉量。
 
     上子图: 每日灌溉量(柱状), 不同颜色代表不同方案
     下子图: 累积灌溉量(折线), 直观展示各方案灌水进程差异
     仅保留优化方案(水层管理/SMT调控), 不显示正常灌溉对照。
     """
     opt_res = sorted(
-        [r for r in results if r.scheme_type in ("水层管理", "SMT调控")],
+        [r for r in results if r.scheme_type in ("水层调控", "水层管理", "SMT调控")],
         key=lambda r: r.summary.get("累计灌溉量(mm)", 0)
     )
     if not opt_res:
@@ -351,10 +356,11 @@ def plot_irrigation_schedule(results: List[SimulationResult], crop: str,
 
     for i, r in enumerate(opt_res):
         d = r.daily
-        # 点标签: 玉米用SMT阈值, 水稻用定额合计
+        # 点标签: 统一用「实际累计灌水量」—— 水层调控方案没有 depths,
+        #   用 sum(r.depths) 会一律显示 0 mm(旧 bug, 2026-10-21 修)
         if crop == "rice":
-            total = sum(r.depths) if r.depths else 0
-            lab = f"{r.label}({total}mm)"
+            total = r.summary.get("累计灌溉量(mm)", 0)
+            lab = f"{r.label}({total:.0f}mm)"
         else:
             lab = f"{r.label}(SMT={r.smt})" if r.smt else r.label
         # 上子图: 每日灌溉量柱状
@@ -366,7 +372,7 @@ def plot_irrigation_schedule(results: List[SimulationResult], crop: str,
                      color=colors[i], linewidth=1.8, label=lab, alpha=0.9)
 
     ax_bar.set_ylabel("每日灌溉量 (mm)", fontsize=11)
-    scheme_desc = "水层管理" if crop == "rice" else "SMT调控"
+    scheme_desc = "水层调控" if crop == "rice" else "SMT调控"
     ax_bar.set_title(
         f"{CROP_CN[crop]} 灌溉制度时序对比（{sim_year} 年, {scheme_desc}）",
         fontsize=13, fontweight="bold")
@@ -413,9 +419,9 @@ def main():
     print(f"作物: {', '.join(CROP_CN[c] for c in crops)}")
     print(f"年份: {years}")
     print("方案设计:")
-    print("  水稻 : 正常灌溉对照 + 7档水层管理(固定日历 + 不同定额梯度)")
-    print("  玉米: 正常灌溉对照 + 7档 SMT调控(土壤水分目标阈值梯度)")
-    print("  7档梯度(灌水量由低到高): "
+    print("  水稻: 对照(官方规程上下限) + 5 档水层调控 —— 6 个方案同一套闭环机制")
+    print("  玉米: 对照(固定日历 200mm) + 5 档 SMT调控(土壤水分目标阈值梯度)")
+    print("  5 档梯度(灌水量由低到高): "
           + " → ".join(f"{sid} {lab}"
                        for sid, lab in zip(SCHEME_IDS, SCHEME_LABELS)))
     print("最优判据: 产量达 95% 最大值时的最小灌水量(边际产量拐点)")

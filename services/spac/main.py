@@ -46,7 +46,8 @@ PUBLIC_PREFIX = os.environ.get("SPAC_PUBLIC_PREFIX", "/spac")  # 浏览器看到
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
 app = sa.make_service(TITLE, VERSION, BASE_PATH, PUBLIC_PREFIX,
-                      description="土壤-作物-大气连续体耦合模拟 · 8 档灌溉方案优化")
+                      description=f"土壤-作物-大气连续体耦合模拟 · "
+                                  f"{engine.n_schemes('rice')} 档灌溉方案优化")
 manager = JobManager(CONFIG.work_dir / "spac", "spac")
 
 # 登录 / 验证码 / 全站鉴权（中间件只拦 /api/* 与 /files/*）
@@ -138,7 +139,8 @@ def run(req: RunReq, request: Request):
                                  f"{'、'.join(map(str, years_avail)) or '无'}")
 
     who = auth.viewer(request).get("user") or ""
-    title = f"{req.year} 年 · {'+'.join(CROP_CN[c] for c in crops)} · {8 * len(crops)} 方案"
+    n_scn = sum(engine.n_schemes(c) for c in crops)
+    title = f"{req.year} 年 · {'+'.join(CROP_CN[c] for c in crops)} · {n_scn} 方案"
 
     def task(job):
         job.progress = f"{req.year} 年模拟中"
@@ -148,7 +150,7 @@ def run(req: RunReq, request: Request):
     job = manager.submit(title, task, params={"year": req.year, "crop": req.crop},
                          owner=who)
     return {"ok": True, "job_id": job.id, "title": title,
-            "n_scenarios": 8 * len(crops)}
+            "n_scenarios": n_scn}
 
 
 # --------------------------------------------------------------------------- #
@@ -162,7 +164,7 @@ def capabilities():
         "crops": [{"value": "rice", "label": "水稻"},
                   {"value": "corn", "label": "玉米"},
                   {"value": "both", "label": "两种都运行"}],
-        "n_scenarios_per_crop": 8,
+        "n_scenarios_per_crop": engine.n_schemes("rice"),
         "figures_per_crop": 6,
         "accepts": ["weather_csv"],
     }

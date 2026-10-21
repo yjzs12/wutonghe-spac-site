@@ -17,8 +17,11 @@ from aquacrop import (  # noqa: F401  —— 全工程唯一出现底层库名�
     FieldMngt,
     InitialWaterContent,
 )
+# 逐日钩子(paddy_control)需要替换内核的 solution_single_time_step，
+# 因此把内核模块对象也从此处转出，保持"底层库只在本文件出现"的约定。
+import aquacrop.core as core_module  # noqa: F401
 
 __all__ = [
     "SimEngine", "Crop", "Soil", "IrrigationManagement",
-    "FieldMngt", "InitialWaterContent",
+    "FieldMngt", "InitialWaterContent", "core_module",
 ]
