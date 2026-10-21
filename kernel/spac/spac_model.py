@@ -277,6 +277,21 @@ class SPACCropModel:
         #      累计求和即为方案总灌溉量, 可用于绘制灌溉制度时序图
         daily["每日灌溉量(mm)"] = wf_arr[:, 6]
 
+        # 3.6) 泡田灌溉量 (mm) —— 移栽日一次性注入的泡田定额
+        #   内核在移栽日之前 growing_season=False, 强制 Irr=0, 泡田水无法通过
+        #   Schedule 灌入; 泡田效果只能由初始墒情(SAT)+插秧水层表达, 这里把
+        #   对应的水量显式补记为移栽日的一笔灌溉, 使水量平衡与灌溉统计闭合。
+        #   ⚠ 内核的 `每日灌溉量(mm)` 保持原值, 灌水"次数"口径不受影响。
+        from modules.initial_condition import puddling_requirement
+        pudd = puddling_requirement(self.crop)
+        daily["泡田灌溉量(mm)"] = 0.0
+        if pudd > 0:
+            # water_flux 第3列 = dap: 生长季内自 1 递增, 非生长季恒为 0
+            dap_col = wf_arr[:, 2]
+            gs_idx = np.where(dap_col == 1)[0]
+            if gs_idx.size:
+                daily.loc[gs_idx[0], "泡田灌溉量(mm)"] = pudd
+
         # 4) 冠层覆盖度 (%)  <- crop_growth 的 canopy_cover (0-1) × 100
         #    cg_arr 列: [step, season, dap, gdd, gdd_cum, z_root, canopy_cover, ...]
         daily["冠层覆盖度(%)"] = cg_arr[:, 6] * 100.0
@@ -337,11 +352,17 @@ class SPACCropModel:
         # water_flux 列: [step, season, dap, Wr, z_gw, surface_storage,
         #                 IrrDay(6), Infl, Runoff, DeepPerc, TileDrain, CR,
         #                 GwIn, Es(13), EsPot(14), Tr(15), TrPot(16)]
+        # ★ 累计灌溉量 = 内核生育期灌溉(IrrDay) + 泡田定额(移栽日一次性)
+        #   "补充灌溉量"单列内核部分, 便于与"总灌溉量"区分上报。
         try:
             wf_arr = np.array(self.model.get_water_flux())[:len(daily)]
-            s["累计灌溉量(mm)"] = float(np.nansum(wf_arr[:, 6]))   # IrrDay
+            sup = float(np.nansum(wf_arr[:, 6]))   # IrrDay
         except Exception:
-            s["累计灌溉量(mm)"] = 0.0
+            sup = 0.0
+        pudd = float(np.nansum(daily.get("泡田灌溉量(mm)", pd.Series([0.0]))))
+        s["补充灌溉量(mm)"] = sup
+        s["泡田定额(mm)"] = pudd
+        s["累计灌溉量(mm)"] = sup + pudd
         return s
 
 

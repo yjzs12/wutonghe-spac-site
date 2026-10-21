@@ -131,6 +131,9 @@ def build_optimization_table(results: List[SimulationResult], sim_year: int) -> 
             "方案类型": r.scheme_type,
             "灌溉方案": r.label,
             "灌溉参数": param,
+            # 累计灌溉量 = 泡田定额(移栽日一次性) + 补充灌溉(生育期逐次)
+            "泡田定额(mm)": r.summary.get("泡田定额(mm)", 0.0),
+            "补充灌溉量(mm)": r.summary.get("补充灌溉量(mm)", irr),
             "累计灌溉量(mm)": irr,
             "最终籽粒产量(t/ha)": yld,
             "全季蒸腾蒸发量(mm)": r.summary.get("全季蒸腾蒸发量(mm)", 0),
@@ -363,12 +366,20 @@ def plot_irrigation_schedule(results: List[SimulationResult], crop: str,
             lab = f"{r.label}({total:.0f}mm)"
         else:
             lab = f"{r.label}(SMT={r.smt})" if r.smt else r.label
-        # 上子图: 每日灌溉量柱状
+        # 上子图: 每日灌溉量柱状（实心=生育期补水；斜纹=移栽日合并记账的泡田定额）
         ax_bar.bar(d["模拟日期"], d["每日灌溉量(mm)"], width=bar_width,
                     color=colors[i], alpha=0.75, label=lab)
-        # 下子图: 累积灌溉量折线
-        cum_irr = d["每日灌溉量(mm)"].cumsum()
-        ax_cum.plot(d["模拟日期"], cum_irr, "-",
+        if "泡田灌溉量(mm)" in d.columns:
+            pudd = d["泡田灌溉量(mm)"].fillna(0.0)
+            if float(pudd.sum()) > 0:
+                ax_bar.bar(d["模拟日期"], pudd, width=bar_width * 0.55,
+                           color=colors[i], alpha=0.95, hatch="//",
+                           edgecolor="k", linewidth=0.3)
+        # 下子图: 累积灌溉量折线（含泡田定额，与汇总表"累计灌溉量"一致）
+        cum_col = d["每日灌溉量(mm)"].copy()
+        if "泡田灌溉量(mm)" in d.columns:
+            cum_col = cum_col + d["泡田灌溉量(mm)"].fillna(0.0)
+        ax_cum.plot(d["模拟日期"], cum_col.cumsum(), "-",
                      color=colors[i], linewidth=1.8, label=lab, alpha=0.9)
 
     ax_bar.set_ylabel("每日灌溉量 (mm)", fontsize=11)

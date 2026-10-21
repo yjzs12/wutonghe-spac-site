@@ -427,8 +427,14 @@ def build_field_management(crop: str) -> FieldMngt:
         #   200mm 可容纳关键期深水(寒地分蘖期 50-70mm 护苗亦满足), 溢流不再先于
         #   水分亏缺发生, 水层深度重新成为有效的过程变量。
         # 历史: 曾用 0.25m(250mm) 致 2024 抽穗开花期水层最大 135mm; 后降至 40mm。
-        # bund_water=20mm 初始田面有薄水层(返青期起始状态)
-        return FieldMngt(bunds=True, z_bund=0.20, bund_water=20.0,
+        # bund_water = 插秧时的田面水层(默认 30mm, 浅水插秧 1-3cm)。
+        #   内核在移栽日 `reset_initial_conditions` 中写入
+        #   `surface_storage = min(bund_water, z_bund)`，因此该值就是"泡田后插秧"
+        #   的初始水层；对应的 228.7mm 泡田定额在 initial_condition 里计量。
+        #   历史: 20mm 时移栽日田面过浅, 且剖面取 FC, 相当于"未泡田直接插秧"。
+        from modules.initial_condition import PADDY_INIT_WATER_LAYER
+        return FieldMngt(bunds=True, z_bund=0.20,
+                         bund_water=PADDY_INIT_WATER_LAYER,
                          mulches=False, sr_inhb=False)
     return FieldMngt()  # 旱田默认
 
