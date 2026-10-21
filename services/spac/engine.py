@@ -506,6 +506,92 @@ def _plot_water_requirement(day_df, crop_cn: str, year: int, path: Path) -> None
 
 
 # --------------------------------------------------------------------------- #
+#  生长过程曲线（冠层覆盖度 / 干物质量）
+# --------------------------------------------------------------------------- #
+#  (daily 列名, 图题, 纵轴名, 文件名模板)
+GROWTH_CURVE_SPECS = (
+    ("冠层覆盖度(%)", "冠层覆盖度过程曲线", "冠层覆盖度 CC (%)",
+     "canopy_cover_{crop}_{year}.png"),
+    ("干物质量(t/ha)", "干物质量累积曲线", "干物质量 (t/ha)",
+     "dry_matter_{crop}_{year}.png"),
+)
+
+
+def _plot_growth_curve(results, crop: str, crop_cn: str, year: int,
+                       column: str, title: str, ylabel: str,
+                       path: Path, log=print) -> bool:
+    """逐日生长过程曲线：正常灌溉对照高亮，各灌溉档位叠加对比。
+
+    口径提示：数据自模拟期 04-01 起，而作物 05-15（水稻移栽）/ 04-25（玉米播种）
+    才进入田间，之前的 CC / 干物质恒为 0，属模型空转段。图上以竖虚线标出，
+    引用指标时须剔除该段（见页面「模拟期、移栽日期与 Kc 口径」说明）。
+    """
+    import matplotlib.dates as mdates
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+
+    rows = [r for r in results
+            if getattr(r, "crop", None) == crop
+            and r.daily is not None and column in getattr(r.daily, "columns", [])]
+    if not rows:
+        log(f"  ⚠ {crop_cn}{title} 跳过：结果里没有「{column}」列")
+        return False
+
+    rs, wc = _ensure()
+    ck = next((r for r in rows if r.scheme_type == rs.NORMAL_LABEL), None)
+    others = [r for r in rows if r is not ck]
+
+    fig, ax = plt.subplots(figsize=(10.5, 4.6), dpi=150)
+    colors = plt.cm.viridis(np.linspace(0.15, 0.85, max(len(others), 1)))
+    for i, r in enumerate(others):
+        d = r.daily
+        ax.plot(d["模拟日期"], d[column], "-", color=colors[i], lw=1.2,
+                alpha=0.7, label=r.label)
+    if ck is not None:
+        ax.plot(ck.daily["模拟日期"], ck.daily[column], "-", color="#d62828",
+                lw=2.2, label=rs.NORMAL_LABEL, zorder=5)
+
+    # 作物进入田间日期（水稻移栽 / 玉米播种），之前为空转段
+    md = wc.RICE_PLANTING_DATE if crop == "rice" else wc.CORN_PLANTING_DATE
+    stage_cn = "移栽" if crop == "rice" else "播种"
+    if md:
+        try:
+            xd = pd.Timestamp(f"{year}-{md.replace('/', '-')}")
+            ax.axvline(xd, color="#444", ls="--", lw=1.1, alpha=0.75)
+            ax.annotate(f"{stage_cn} {md}", xy=(xd, 0.55),
+                        xycoords=("data", "axes fraction"),
+                        xytext=(3, 0), textcoords="offset points",
+                        rotation=90, va="center", ha="left",
+                        fontsize=8, color="#444")
+        except Exception:                                # noqa: BLE001
+            pass
+
+    ax.set_ylabel(ylabel)
+    xlabel = "日期"
+    if md:
+        xlabel += f"（{stage_cn}前为空转段，曲线无作物含义）"
+    ax.set_xlabel(xlabel)
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
+    ax.grid(axis="y", ls=":", alpha=0.5)
+    ax.set_title(f"{crop_cn}{title}（{year} 年 · 正常灌溉对照及各灌溉档位）",
+                 fontsize=11, pad=22)
+    ax.legend(loc="lower left", bbox_to_anchor=(0, 1.005, 1, 0.1), mode="expand",
+              ncols=8, fontsize=7.5, frameon=False, handlelength=1.6,
+              columnspacing=1.0)
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+    return path.exists()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path)
+    plt.close(fig)
+    return path.exists()
+
+
+# --------------------------------------------------------------------------- #
 #  运行
 # --------------------------------------------------------------------------- #
 def run(crops: list[str], year: int, out_dir: Path, progress=None,
@@ -586,6 +672,25 @@ def run(crops: list[str], year: int, out_dir: Path, progress=None,
         optimal_files.append(f"optimal_irrigation_{year}.csv")
         log(f"\n★ {year} 年经济最优灌溉方案（产量达 95% 最大值）：")
         log(optimal.to_string(index=False))
+
+    # ---- 生长过程曲线（冠层覆盖度 / 干物质量，正常灌溉对照 + 各档叠加）----
+    for crop in crops:
+        for column, title, ylabel, tmpl in GROWTH_CURVE_SPECS:
+            fname = tmpl.format(crop=crop, year=year)
+            try:
+                if _plot_growth_curve(year_results, crop, rs.CROP_CN[crop], year,
+                                      column, title, ylabel, fig_dir / fname,
+                                      log=log):
+                    figures.append({
+                        "key": f"{column}:{crop}",
+                        "title": f"{title}（{rs.CROP_CN[crop]}）",
+                        "group": rs.CROP_CN[crop],
+                        "rel": f"figures/{fname}",
+                        "size": (fig_dir / fname).stat().st_size,
+                    })
+                    log(f"  已保存: {fname}")
+            except Exception as e:                       # noqa: BLE001
+                log(f"  ⚠ 生长曲线生成失败 {fname}: {type(e).__name__}: {e}")
 
     # ---- 作物需水量（逐月 ET0 / ETc / Kc / 降雨 / 灌溉，正常灌溉对照）----
     import pandas as pd
