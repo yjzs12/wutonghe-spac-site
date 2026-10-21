@@ -177,7 +177,7 @@ class SPACCropModel:
         print(f"\n[SPAC模型] 运行: {self.crop} {self.label} "
               f"({sim_year}年)")
         print("  " + scenario_summary(self.crop, self.label))
-        print("  " + describe_initial_condition(self.crop))
+        print("  " + describe_initial_condition(self.crop, self.cfg.initial_moisture))
 
         # 内核要求 sim_start_time/sim_end_time 为 'yyyy/mm/dd' 或 'yyyy-mm-dd'
         start = pd.to_datetime(self.cfg.sim_start).strftime("%Y/%m/%d")
