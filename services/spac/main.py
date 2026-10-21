@@ -163,7 +163,7 @@ def capabilities():
                   {"value": "corn", "label": "玉米"},
                   {"value": "both", "label": "两种都运行"}],
         "n_scenarios_per_crop": 8,
-        "figures_per_crop": 3,
+        "figures_per_crop": 6,
         "accepts": ["weather_csv"],
     }
 

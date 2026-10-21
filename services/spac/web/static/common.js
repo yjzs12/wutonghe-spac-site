@@ -209,6 +209,25 @@ function renderFiles(container, jobId, files) {
    每张图 = 一个独立窗口：标题栏（标题 / 分组 / 放大 / 下载）+ 画布
    可选按 group 分组显示小标题；点击画布全屏查看。
    ========================================================================== */
+/* 图片 / 文件加载失败时，探一次真实 HTTP 状态，把「为什么」直接写在页面上。
+   免费层（Render 等）重启会清空 work/ 里的运行结果、并重置登录会话；两种情况
+   的表现都是「缩略图有缓存还能看，点开大图 / 点预览却什么都不显示」，
+   不给状态码根本没法判断是没登录还是结果没了。 */
+async function failReason(url) {
+  let st = 0;
+  try {
+    const r = await fetch(url, { cache: 'no-store' });
+    st = r.status;
+  } catch (e) { st = 0; }
+  if (st === 401 || st === 403)
+    return '登录状态已失效（服务重启会重置会话）—— 请刷新页面重新登录，再重跑一次模拟。';
+  if (st === 404)
+    return '结果文件已不存在（免费实例休眠/重启/重新部署会清空运行结果）—— 请重新点「开始模拟」。';
+  if (st === 200)
+    return '文件能取到但浏览器未能解码，可点右上角 ⤓ 下载原图查看。';
+  return `加载失败（HTTP ${st || '网络错误'}），可点右上角 ⤓ 下载原图。`;
+}
+
 function renderFigures(container, jobId, figures, opts = {}) {
   if (typeof container === 'string') container = $(container);
   const { groupBy = true, wideFirst = false } = opts;
@@ -282,7 +301,10 @@ function renderFigures(container, jobId, figures, opts = {}) {
     img.className = 'fig-img';
     const reveal = () => { img.classList.add('ready'); if (ph.parentNode) ph.remove(); };
     img.addEventListener('load', reveal);
-    img.addEventListener('error', () => { ph.textContent = '图片加载失败（可点右上角 ⤓ 下载原图）'; });
+    img.addEventListener('error', () => {
+      ph.textContent = '图片加载失败，正在核查原因…';
+      failReason(img.src).then(msg => { ph.textContent = msg; });
+    });
     img.src = fileUrl(jobId, fig.rel);
     // 兜底：图片直接从缓存/已完成状态命中时 load 可能早已错过，主动补判一次。
     // （CSS 已让 img 默认可见，这里只是把「加载中…」占位收掉，双保险。）
@@ -328,6 +350,17 @@ function lightbox(src, alt, jobId, rel) {
   img.src = src;
   img.alt = alt || '';
   mask.appendChild(img);
+
+  /* 大图打不开时不能只留一块黑底（用户只会说「点开没图」），
+     把真实 HTTP 状态翻成人话贴在上面。 */
+  img.addEventListener('error', () => {
+    img.remove();
+    const tip = document.createElement('div');
+    tip.className = 'lb-err';
+    tip.textContent = '原图加载失败，正在核查原因…';
+    mask.appendChild(tip);
+    failReason(src).then(t => { tip.textContent = t; });
+  });
 
   if (alt) {
     const cap = document.createElement('div');

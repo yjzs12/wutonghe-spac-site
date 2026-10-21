@@ -427,7 +427,19 @@ function applyWide() {
 async function restoreJob(jobId) {
   currentJobId = jobId;
   $('#downloadLog').href = BASE + `/api/job/${jobId}/log.txt`;
-  const s = await api(`/api/job/${jobId}`);
+  let s;
+  try {
+    s = await api(`/api/job/${jobId}`);
+  } catch (e) {
+    /* 免费实例重启 / 重新部署后，job 元数据与结果文件一起没了。
+       原来这里会抛未捕获异常，页面停在"运行中…"，看着像卡死。 */
+    clearResults();
+    $('#figureBody').innerHTML =
+      '<div class="empty-state">这次运行的结果已不存在（实例休眠重启或重新部署会清空），请重新点「开始模拟」。</div>';
+    setPill('err', '结果已失效');
+    toast('这次运行的结果已不存在（实例休眠重启或重新部署会清空），请重新跑一次模拟。', 'err');
+    return;
+  }
   logView.reset();
   if (s.log) logView.append(s.log);
   if (s.status === 'running' || s.status === 'queued') {

@@ -150,26 +150,27 @@ def login(username: str, password: str) -> dict | None:
 def _secret() -> bytes:
     """会话签名密钥。
 
-    落在 work/.auth_secret（同一台机器上的网关与子服务共用同一个 work 目录，
-    因此签名互认）。文件不可写时退化为按安装路径派生 —— 能跑，但换机器会掉线。
+    优先级：环境变量 `WTH_AUTH_SECRET`（十六进制或任意字符串）→ **按账号表内容派生**
+    → 按安装路径派生。
+
+    为什么不再写 work/.auth_secret：免费层（Render 等）的文件系统是临时的，容器
+    一重启/重新部署/休眠唤醒，该文件就没了，于是随机密钥换成新值 —— 所有已发放
+    的 cookie 立刻失效。表现是「页面还开着、缩略图有缓存还能看，但点开大图 / 打开
+    文件全部打不开」，看着像"预览坏了"，其实是整站登录态静默过期。
+    改成按账号表派生后，只要 `账号.json` 不变，重启前后密钥一致，登录态不再丢。
+    ⚠ 代价：改账号表（加人/改密码）会让所有人重新登录一次。
     """
-    p = _secret_path()
+    env = os.environ.get("WTH_AUTH_SECRET")
+    if env:
+        try:
+            return bytes.fromhex(env)
+        except ValueError:
+            return hashlib.sha256(env.encode()).digest()
     try:
-        if p.exists():
-            v = p.read_text(encoding="utf-8").strip()
-            if v:
-                return bytes.fromhex(v)
-        v = secrets.token_hex(32)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(v, encoding="utf-8")
-        return bytes.fromhex(v)
-    except (OSError, ValueError):
+        raw = ACCOUNTS_FILE.read_bytes()
+        return hashlib.sha256(b"wth-session-v1|" + raw).digest()
+    except OSError:
         return hashlib.sha256(("wth-fallback:" + str(ROOT)).encode()).digest()
-
-
-def _secret_path() -> Path:
-    from core.config import CONFIG
-    return Path(CONFIG.work_dir) / ".auth_secret"
 
 
 def _b64e(data: bytes) -> str:
