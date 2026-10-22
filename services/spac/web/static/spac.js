@@ -20,6 +20,75 @@ let watcher = null;
 let running = false;
 let wideMode = false;
 let lastResult = null;
+let utilizationProfiles = null;
+let pendingDisplayLog = '';
+
+function preparationFreeNotes(text) {
+  return String(text || '').split(/(?<=[。！？])/).filter(sentence => !/泡田|puddl/i.test(sentence)).join('');
+}
+
+function tableForDisplay(table) {
+  if (!table) return table;
+  const indices = table.columns.map((_, i) => i).filter(i => !/泡田|puddl/i.test(table.columns[i]));
+  return {
+    columns: indices.map(i => table.columns[i]),
+    rows: table.rows.map(row => indices.map(i => {
+      const value = row[i];
+      if (typeof value !== 'string' || !/泡田|puddl/i.test(value)) return value;
+      return table.columns[i] === '灌水口径' ? '田间净量' : preparationFreeNotes(value);
+    })),
+  };
+}
+
+function appendDisplayLog(text, flush = false) {
+  pendingDisplayLog += text;
+  const lines = pendingDisplayLog.split('\n');
+  pendingDisplayLog = flush ? '' : lines.pop();
+  const visible = lines.filter(line => !/泡田|puddl/i.test(line));
+  if (visible.length) logView.append(visible.join('\n') + (flush ? '' : '\n'));
+}
+
+async function loadUtilizationProfiles() {
+  const data = await api('/api/capabilities');
+  if (!data.utilization_profiles) throw new Error('服务未提供新版利用系数配置，请更新后端');
+  utilizationProfiles = data.utilization_profiles;
+  ['rice', 'corn'].forEach(crop => {
+    const select = $('#' + crop + 'Profile');
+    select.innerHTML = '';
+    Object.entries(utilizationProfiles).filter(([, p]) => p.crops.includes(crop)).forEach(([key, p]) => {
+      const option = el('option'); option.value = key;
+      option.textContent = p.label + (p.range ? `（${p.range[0]}—${p.range[1]}）` : '');
+      select.appendChild(option);
+    });
+    select.value = crop === 'rice' ? 'rice_surface' : 'corn_canal';
+    select.disabled = false;
+    const update = () => {
+      const limits = utilizationProfiles[select.value].range;
+      const input = $('#' + crop + 'Coefficient');
+      input.disabled = !limits;
+      input.value = limits ? ((limits[0] + limits[1]) / 2).toFixed(3) : '';
+      if (limits) { input.min = limits[0]; input.max = limits[1]; }
+    };
+    select.addEventListener('change', update); update();
+  });
+}
+
+function irrigationRunOptions(crop) {
+  if (!utilizationProfiles) throw new Error('利用系数配置尚未加载成功，请刷新页面');
+  const selected = crop === 'both' ? ['rice', 'corn'] : [crop];
+  const payload = { yield_target_pct: Number($('#yieldTarget').value) };
+  selected.forEach(c => {
+    const profile = $('#' + c + 'Profile').value;
+    const coefficient = $('#' + c + 'Coefficient');
+    const field = $('#' + c + 'AppEff');
+    if (!field.checkValidity() || !field.value) throw new Error('请核实田间施加效率');
+    if (utilizationProfiles[profile].range && (!coefficient.value || !coefficient.checkValidity())) throw new Error('利用系数须在来源表区间内');
+    payload[c + '_profile'] = profile;
+    payload[c + '_coefficient'] = coefficient.disabled ? null : Number(coefficient.value);
+    payload[c + '_application_efficiency_pct'] = Number(field.value);
+  });
+  return payload;
+}
 
 /* ---------------- 状态 ---------------- */
 function setPill(kind, text) {
@@ -140,12 +209,13 @@ async function startRun(year, crop) {
   $('#demoBtn').disabled = true;
   $('#runBtn').textContent = '模拟中…';
   logView.reset();
+  pendingDisplayLog = '';
   clearResults();
   setPill('run', '运行中');
   elapsedEl.textContent = '';
 
   try {
-    const r = await postJSON('/api/run', { year: Number(year), crop });
+    const r = await postJSON('/api/run', { year: Number(year), crop, ...irrigationRunOptions(crop) });
     if (!r.ok) throw new Error(r.error || '启动失败');
     currentJobId = r.job_id;
     $('#downloadLog').href = BASE + `/api/job/${r.job_id}/log.txt`;
@@ -161,7 +231,7 @@ async function startRun(year, crop) {
 function watch(jobId) {
   if (watcher) watcher.stop();
   watcher = watchJob(jobId, {
-    onLog: t => logView.append(t),
+    onLog: t => appendDisplayLog(t),
     onState: s => {
       if (s.status === 'running') {
         setPill('run', s.progress || '运行中');
@@ -171,6 +241,7 @@ function watch(jobId) {
       }
     },
     onFinish: s => {
+      appendDisplayLog('', true);
       if (s.status === 'done' && s.result) {
         logView.append(`\n[完成] ${s.result.n_scenarios} 个方案，${s.result.figures.length} 张图件。\n`);
         setPill('ok', '已完成');
@@ -196,6 +267,7 @@ function finishUI() {
 
 /* ---------------- 结果渲染 ---------------- */
 function clearResults() {
+  $('#evidenceBody').innerHTML = '<div class="empty-state">暂无</div>';
   $('#kpiRow').classList.add('hidden');
   $('#kpiRow').innerHTML = '';
   $('#figureBody').innerHTML = '<div class="empty-state">运行中…</div>';
@@ -209,16 +281,36 @@ function clearResults() {
 
 function renderResult(jobId, res) {
   lastResult = res;
-  const currentRice = res.model_revision === '2026-10-22-rice-v4';
+  const currentModel = res.model_revision === '2026-10-22-corn-water-v5';
+  const currentRice = currentModel || res.model_revision === '2026-10-22-rice-v4';
   const standardRice = currentRice || res.model_revision === '2026-10-22-rice-v3';
   const netWater = ['net_with_puddling_v2', 'net_profile_puddling_v3', 'net_puddling_balance_v4'].includes(res.irrigation_basis);
+  if (currentModel && res.irrigation_settings) {
+    $('#yearSelect').value = String(res.year);
+    $$('#yearChips .chip').forEach(chip => chip.classList.toggle('on', chip.textContent === String(res.year)));
+    const cropValue = (res.crops || []).length === 2 ? 'both' : (res.crops || [])[0];
+    if (cropValue) $(`input[name=crop][value=${cropValue}]`).checked = true;
+    $('#yieldTarget').value = String(Math.round(res.yield_target * 100));
+    Object.entries(res.irrigation_settings).forEach(([crop, settings]) => {
+      const profile = $('#' + crop + 'Profile');
+      profile.value = settings.profile;
+      profile.dispatchEvent(new Event('change'));
+      $('#' + crop + 'Coefficient').value = settings.coefficient == null ? '' : String(settings.coefficient);
+      $('#' + crop + 'AppEff').value = String(settings.application_efficiency_pct);
+    });
+  }
 
   /* --- KPI 条：把最优灌溉制度摊成指标卡 --- */
   const kpis = [];
   if (res.kpi && res.kpi.length) {
     res.kpi.forEach(k => {
-      kpis.push({ k: `${k['作物']} · 最优${netWater ? '净' : ''}灌水量`, v: fmtNum(k['累计灌溉量(mm)'], 1), unit: 'mm', kind: 'accent' });
-      kpis.push({ k: `${k['作物']} · 最优方案`, v: k['最优方案'], unit: '' });
+      kpis.push({ k: `${k['作物']} · 节水候选${netWater ? '净' : ''}灌水`, v: fmtNum(k['累计灌溉量(mm)'], 1), unit: 'mm', kind: 'accent' });
+      kpis.push({ k: `${k['作物']} · 节水候选`, v: k['最优方案'], unit: '' });
+      if (currentModel) {
+        kpis.push({ k: `${k['作物']} · 最高产方案`, v: k['最高产方案'], unit: '' });
+        kpis.push({ k: `${k['作物']} · 较峰值减产`, v: fmtNum(k['较峰值减产(%)'], 2), unit: '%' });
+        kpis.push({ k: `${k['作物']} · 候选水源取水估算`, v: fmtNum(k['水源取水量估算(mm)'], 1), unit: 'mm' });
+      }
       /* 展示相对产量；天气充足时可以出现平台，不预设最佳档位。 */
       kpis.push({ k: `${k['作物']} · 达峰值产量`, v: fmtNum(k['产量达最大百分比(%)'], 1), unit: '%' });
       const yieldLabel = standardRice && k['作物'] === '水稻' ? '产量（14.5%水分）' : '产量';
@@ -244,7 +336,9 @@ function renderResult(jobId, res) {
 
   /* --- 最优制度表 --- */
   if (res.optimal && res.optimal.rows.length) {
-    renderTable($('#optimalBody'), res.optimal);
+    const indices = res.optimal.columns.map((c, i) => i).filter(i => !(currentModel && res.optimal.columns[i] === '最优方案'));
+    const view = { columns: indices.map(i => res.optimal.columns[i] === '最优方案' ? '历史候选方案' : res.optimal.columns[i]), rows: res.optimal.rows.map(row => indices.map(i => row[i])) };
+    renderTable($('#optimalBody'), tableForDisplay(view));
   } else {
     $('#optimalBody').innerHTML = '<div class="empty-state">无优化方案结果</div>';
   }
@@ -261,10 +355,24 @@ function renderResult(jobId, res) {
       if (idx >= 0) hl.push(idx);
     });
   }
-  renderTable($('#summaryBody'), res.summary, { highlight: hl });
-  $('#summarySub').textContent = `${res.year} 年 · ${res.summary.rows.length} 个方案（绿色行为最优）`
+  renderTable($('#summaryBody'), tableForDisplay(res.summary), { highlight: hl });
+  $('#optimalCriterion').textContent = currentModel ? `产量达到全部方案峰值的${fmtNum((res.yield_target || .95) * 100, 0)}%，再取最少净灌水；最高产与节水候选分开报告` : '历史任务按旧95%门槛筛选，未提供新版雨养诊断';
+  $('#summarySub').textContent = `${res.year} 年 · ${res.summary.rows.length} 个方案（绿色行为节水候选）`
     + (netWater ? ' · 主统计为田间净量，毛量另列' : ' · 历史任务口径，不能与新版直接比较')
-    + (currentRice ? ` · ${res.model_notes || ''}` : ' · 历史模型版本，泡田与关键期约束口径与当前版本不同');
+    + (currentRice ? ` · ${preparationFreeNotes(res.model_notes)}` : ' · 历史模型版本，请使用当前版本重新运行');
+  const evidenceBox = $('#evidenceBody');
+  evidenceBox.innerHTML = '';
+  if (currentModel && res.evidence && res.evidence.rows.length) {
+    const ci = res.evidence.columns.indexOf('结论');
+    res.evidence.rows.forEach(row => evidenceBox.appendChild(el('div', 'notice', row[ci])));
+    const table = el('div'); evidenceBox.appendChild(table); renderTable(table, res.evidence);
+  } else {
+    evidenceBox.appendChild(el('div', 'empty-state', currentModel ? '本次未运行玉米。' : '历史结果缺少真正零灌溉对照与判定依据，请用新版重算。'));
+  }
+  if (currentModel && res.irrigation_settings) {
+    const text = Object.values(res.irrigation_settings).map(s => `${s.label}：总系数${s.coefficient == null ? '未指定' : s.coefficient}，田间施加效率${s.application_efficiency_pct}%`).join('；');
+    evidenceBox.appendChild(el('div', 'hint', text + '。水源取水由净量÷总系数估算，未重复折减田间效率。'));
+  }
 
   /* --- 作物需水量（月表 + 点月份展开逐日明细） --- */
   const wrBox = $('#waterReqBody');
@@ -290,7 +398,7 @@ function renderResult(jobId, res) {
   }
 
   /* --- 文件 --- */
-  renderFiles($('#fileBody'), jobId, res.files);
+  renderFiles($('#fileBody'), jobId, (res.files || []).filter(file => !/泡田|puddl/i.test(`${file.rel || ''} ${file.name || ''}`)));
 }
 
 /* ---------------- 物候口径说明：移栽前的 Kc 不是作物系数 ---------------- */
@@ -303,15 +411,9 @@ function renderPhenology(box, crops) {
   if (!items.length) { box.innerHTML = ''; return; }
   const line = c => {
     const p = c.phenology;
-    const start = (c.period || '').split(' ~ ')[0];
     return `<div style="margin-bottom:7px">`
       + `<span style="color:var(--text-2);font-weight:500">${c.name}</span>　`
-      + `模拟期自 ${start} 起，${p.planting} ${p.plant_term}、${p.emergence} ${p.emergence_term || '出苗'}。`
-      + `此前 <span style="color:var(--text-2);font-weight:500">${p.pre_days} 天</span>无作物`
-      + `（冠层覆盖度0；插前净补水${fmtNum(p.pre_irrigation || 0, 1)}mm，水稻含泡田），蒸发统计：`
-      + `ET0 ${fmtNum(p.pre_et0, 1)} mm / ETc ${fmtNum(p.pre_etc, 1)} mm / `
-      + `<span style="color:var(--text-2);font-weight:500">Kc ${fmtNum(p.pre_kc, 2)}</span>`
-      + `，该段 Kc 不代表作物系数。`
+      + `${p.planting} ${p.plant_term}、${p.emergence} ${p.emergence_term || '出苗'}。`
       + `仅统计${p.plant_term}后 ${p.crop_days} 天：`
       + `ET0 ${fmtNum(p.crop_et0, 1)} mm / ETc ${fmtNum(p.crop_etc, 1)} mm / `
       + `<span style="color:var(--text-2);font-weight:500">Kc ${fmtNum(p.crop_kc, 2)}</span>。</div>`;
@@ -446,7 +548,8 @@ async function restoreJob(jobId) {
     return;
   }
   logView.reset();
-  if (s.log) logView.append(s.log);
+  pendingDisplayLog = '';
+  if (s.log) appendDisplayLog(s.log, !['running', 'queued'].includes(s.status));
   if (s.status === 'running' || s.status === 'queued') {
     running = true;
     $('#runBtn').disabled = true;
@@ -480,7 +583,7 @@ $('#toggleWide').addEventListener('click', () => {
   applyWide();
 });
 
-loadYears().then(() => {
+Promise.all([loadYears(), loadUtilizationProfiles()]).then(() => {
   const jid = qs('job');
   if (jid) restoreJob(jid);
-});
+}).catch(e => toast('配置加载失败：' + e.message, 'err'));

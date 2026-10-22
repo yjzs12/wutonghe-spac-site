@@ -64,6 +64,7 @@ class SimulationConfig:
     sim_end: str = SIM_END
     weather_csv: Optional[str] = None   # 实测气象 CSV 路径（可选）
     initial_moisture: Optional[str] = None
+    application_efficiency_pct: float = 90.
 
     def __post_init__(self):
         # 若指定了 sim_year，则按年份覆盖 sim_start/sim_end
@@ -162,7 +163,8 @@ class SPACCropModel:
         #    mode='smt'     : 玉米 SMT 自动调控
         irrigation = build_irrigation(self.crop, self.smt, self.mode,
                                       depths=self.depths,
-                                      sim_year=self.cfg.sim_year)
+                                      sim_year=self.cfg.sim_year,
+                                      application_efficiency_pct=self.cfg.application_efficiency_pct)
         field_mngt = build_field_management(self.crop)
         # 5) 初始条件模块（层数须与土壤一致）
         iwc = build_initial_water_content(self.crop, self.cfg.initial_moisture, n_layers)
@@ -195,6 +197,9 @@ class SPACCropModel:
             initial_water_content=self._iwc,
             irrigation_management=self._irr,
             field_management=self._fm,
+            # Preserve the simulated April soil-water state at corn sowing.
+            # The default off_season=False resets the profile to thini on 4/25.
+            off_season=self.crop=="corn",
         )
         # 关键：必须 till_termination=True 才会跑完整个模拟期；
         # 默认 num_steps=1 只跑 1 天，且 outputs 仅在 model_is_finished 时
@@ -259,6 +264,8 @@ class SPACCropModel:
         daily = pd.DataFrame()
         # 1) 模拟日期
         daily["模拟日期"] = dates.values
+        daily["降雨量(mm)"] = self.weather_df["Precipitation"].to_numpy()[:n_days]
+        daily["参考蒸散ET0(mm)"] = self.weather_df["ReferenceET"].to_numpy()[:n_days]
 
         # 2) 第1、2...j层土壤含水率（vol）
         #    ws_arr 列: [step, growing_season, dap, th1, th2, ..., thN]（N=nComp）
@@ -268,6 +275,9 @@ class SPACCropModel:
         from config.soil_params import get_soil_config
         soil_cfg = get_soil_config(self.crop)
         layer_depths = [lay["depth"] for lay in soil_cfg["layers"]]
+        actual_dz=np.asarray(self.model._param_struct.Soil.Profile.dz,dtype=float)
+        if abs(actual_dz.sum()-sum(layer_depths))>1e-8:
+            raise ValueError("求解器改变了土壤剖面深度，无法按原层界报告储水与土壤含水率")
         # 每层对应的 compartment 数（每 0.1m 一个 compartment）
         comp_per_layer = [max(int(round(d / 0.1)), 1) for d in layer_depths]
         # 验证总数一致
@@ -277,7 +287,7 @@ class SPACCropModel:
         comp_start = 0
         for layer_idx, n_in_layer in enumerate(comp_per_layer):
             cols_in_layer = list(range(comp_start, comp_start + n_in_layer))
-            layer_th = np.mean(ws_arr[:, 3 + np.array(cols_in_layer)], axis=1)
+            layer_th = np.average(ws_arr[:, 3 + np.array(cols_in_layer)],axis=1,weights=actual_dz[cols_in_layer])
             daily[f"第{layer_idx+1}层土壤含水率"] = layer_th
             comp_start += n_in_layer
 
@@ -444,7 +454,8 @@ def run_simulation(crop: str, label: str, smt: Optional[list] = None,
                    mode: str = "smt", depths: Optional[list] = None,
                    scheme_type: str = "",
                    sim_year: Optional[int] = None,
-                   weather_csv: Optional[str] = None) -> SimulationResult:
+                   weather_csv: Optional[str] = None,
+                   application_efficiency_pct: float = 90.) -> SimulationResult:
     """运行单次模拟。
 
     Parameters
@@ -460,7 +471,8 @@ def run_simulation(crop: str, label: str, smt: Optional[list] = None,
     """
     cfg = SimulationConfig(crop=crop, label=label, smt=smt, mode=mode,
                            depths=depths, scheme_type=scheme_type,
-                           sim_year=sim_year, weather_csv=weather_csv)
+                           sim_year=sim_year, weather_csv=weather_csv,
+                           application_efficiency_pct=application_efficiency_pct)
     m = SPACCropModel(cfg)
     m.prepare_inputs().run()
     return m.collect_outputs()

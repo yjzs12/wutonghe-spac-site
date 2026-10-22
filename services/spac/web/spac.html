@@ -24,7 +24,7 @@
   <h1 class="page-title">基于 SPAC 的典型作物生长模型</h1>
   <p class="page-desc">
     土壤-作物-大气连续体耦合模拟 ｜ FAO-56参考蒸散与作物水分生产力计算 ｜ 每作物6档灌溉方案（对照CK + 水量梯度L1–L5）
-    ｜ 最优判据：产量达 95% 峰值的最小灌水量
+    ｜ 分别报告最高产方案、保产节水候选与零灌溉对照
   </p>
 
   <div class="grid-side">
@@ -69,7 +69,7 @@
           <div class="field">
             <label>模拟年份</label>
             <select id="yearSelect"><option value="">（无数据，请先导入气象数据）</option></select>
-            <div class="hint">模拟期 <code id="periodHint">04-01 ~ 10-15</code>。总净灌水已含移栽前5天泡田净补水：按当年泡田前含水率算储水缺口，加蒸发、渗漏并扣降雨，不另加固定泡田量。泡田结束时设定湿润层饱和。L1/L2只作缺水试验；水稻候选须通过返青、孕穗开花期保水检查。产量暂按14.5%含水率折算，下载表保留干重。春季初墒、湿润深度和泡田历时仍待实测验证。</div>
+            <div class="hint">模拟期 <code id="periodHint">04-01 ~ 10-15</code>。L1/L2只作水稻缺水试验；水稻候选须通过返青、孕穗开花期保水检查。水稻产量暂按14.5%含水率折算，下载表保留干重。</div>
           </div>
 
           <div class="field">
@@ -82,6 +82,26 @@
             <div class="hint">每作物 6 个方案（对照 CK + 水量梯度 L1–L5），单作物约 1 分钟。运行期间请勿关闭页面。</div>
           </div>
 
+          <div class="field">
+            <label for="yieldTarget">节水候选保产比例</label>
+            <select id="yieldTarget"><option value="95">95%峰值（允许最多5%模拟减产）</option><option value="99">99%峰值（允许最多1%模拟减产）</option><option value="100">100%峰值（最高产水平）</option></select>
+            <div class="hint">选择满足此比例且田间净灌水最少的方案。雨养达标时可成为节水候选，但不等于雨养最高产或实测最优。</div>
+          </div>
+          <div class="field">
+            <label for="riceProfile">水稻供水类型及总利用系数</label>
+            <select id="riceProfile" disabled><option>加载中…</option></select>
+            <input id="riceCoefficient" type="number" step="0.001" value="0.715" aria-label="水稻总利用系数">
+            <label for="riceAppEff">水稻田间施加效率（%）</label>
+            <input id="riceAppEff" type="number" min="1" max="100" step="0.1" value="90">
+          </div>
+          <div class="field">
+            <label for="cornProfile">玉米灌溉方式及总利用系数</label>
+            <select id="cornProfile" disabled><option>加载中…</option></select>
+            <input id="cornCoefficient" type="number" step="0.001" value="0.700" aria-label="玉米总利用系数">
+            <label for="cornAppEff">玉米田间施加效率（%）</label>
+            <input id="cornAppEff" type="number" min="1" max="100" step="0.1" value="90">
+            <div class="hint">默认水田地表水、旱田渠灌。总利用系数取来源表区间中值，田间施加效率90%为单独假设，均可修改。取水估算＝净需水÷总利用系数，包含的田间损失不重复扣减。选灌溉方式只改变用水换算，不模拟滴头或喷灌设备的空间湿润过程。</div>
+          </div>
           <div class="actions">
             <button class="btn btn-primary btn-block" id="runBtn">开始模拟</button>
           </div>
@@ -204,8 +224,8 @@ figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都�
         <div class="grid-2">
           <div class="card" id="resultCard">
             <div class="card-head">
-              <h2>95%峰值节水候选灌溉制度</h2>
-              <span class="sub">产量达 95% 峰值的最小灌水量</span>
+              <h2>保产节水候选</h2>
+              <span class="sub" id="optimalCriterion">达到所选保产比例的最小净灌水量</span>
             </div>
             <div class="card-body" id="optimalBody"><div class="empty-state">暂无</div></div>
           </div>
@@ -219,6 +239,10 @@ figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都�
           </div>
         </div>
 
+        <div class="card" id="evidenceCard">
+          <div class="card-head"><h2>雨养与补灌判定依据</h2></div>
+          <div class="card-body" id="evidenceBody"><div class="empty-state">运行玉米后显示雨养产量损失、关键期降雨与蒸腾受限指标。</div></div>
+        </div>
         <div class="card" id="waterReqCard">
           <div class="card-head">
             <h2>作物需水量</h2>

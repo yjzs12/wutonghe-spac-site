@@ -122,6 +122,13 @@ CROP_CN = {"rice": "水稻", "corn": "玉米"}
 class RunReq(BaseModel):
     year: int = Field(..., description="模拟年份")
     crop: str = Field("both", description="rice | corn | both")
+    yield_target_pct: float = Field(95.,ge=90.,le=100.,description="节水候选保产比例")
+    rice_profile: str = "rice_surface"
+    corn_profile: str = "corn_canal"
+    rice_coefficient: float | None = None
+    corn_coefficient: float | None = None
+    rice_application_efficiency_pct: float = Field(90.,gt=0.,le=100.)
+    corn_application_efficiency_pct: float = Field(90.,gt=0.,le=100.)
 
 
 @app.post(f"{BASE_PATH}/api/run")
@@ -129,6 +136,12 @@ def run(req: RunReq, request: Request):
     crops = {"rice": ["rice"], "corn": ["corn"], "both": ["rice", "corn"]}.get(req.crop)
     if not crops:
         raise HTTPException(400, "crop 只能是 rice / corn / both")
+    options={c:{"profile":getattr(req,c+"_profile"),"coefficient":getattr(req,c+"_coefficient"),
+                "application_efficiency_pct":getattr(req,c+"_application_efficiency_pct")} for c in crops}
+    try:
+        engine.validate_run_settings(crops,options,req.yield_target_pct/100.)
+    except ValueError as e:
+        raise HTTPException(400,str(e)) from e
 
     try:
         years_avail = engine.available_years(auth.viewer(request).get("user") or "")
@@ -145,9 +158,10 @@ def run(req: RunReq, request: Request):
     def task(job):
         job.progress = f"{req.year} 年模拟中"
         return engine.run(crops, req.year, job.out_dir, owner=who,
-                          progress=lambda msg: setattr(job, "progress", msg))
+                          progress=lambda msg: setattr(job, "progress", msg),
+                          irrigation_options=options,yield_target=req.yield_target_pct/100.)
 
-    job = manager.submit(title, task, params={"year": req.year, "crop": req.crop},
+    job = manager.submit(title, task, params=req.model_dump(),
                          owner=who)
     return {"ok": True, "job_id": job.id, "title": title,
             "n_scenarios": n_scn}
@@ -158,6 +172,8 @@ def run(req: RunReq, request: Request):
 # --------------------------------------------------------------------------- #
 @app.get(f"{BASE_PATH}/api/capabilities")
 def capabilities():
+    engine.bootstrap()
+    from config.irrigation_params import UTILIZATION_PROFILES
     return {
         "ok": True,
         "service": "spac",
@@ -167,6 +183,8 @@ def capabilities():
         "n_scenarios_per_crop": engine.n_schemes("rice"),
         "figures_per_crop": 6,
         "accepts": ["weather_csv"],
+        "utilization_profiles":UTILIZATION_PROFILES,
+        "yield_target_range_pct":[90,100],
     }
 
 

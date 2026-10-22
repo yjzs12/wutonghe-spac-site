@@ -54,7 +54,7 @@ CROPS = ["rice", "corn"]
 CROP_CN = {"rice": "水稻", "corn": "玉米"}
 
 
-def run_crop_optimization(crop: str, sim_year: int) -> List[SimulationResult]:
+def run_crop_optimization(crop: str, sim_year: int, application_efficiency_pct: float=90.) -> List[SimulationResult]:
     """对单个作物在指定年份运行全部灌溉方案。
 
     水稻: 正常灌溉对照 + 5 档水层调控方案
@@ -80,7 +80,8 @@ def run_crop_optimization(crop: str, sim_year: int) -> List[SimulationResult]:
         print(f"\n  → {label} [{scheme_type}] {info}")
         try:
             res = run_simulation(crop, label, smt, mode=mode, depths=depths,
-                                  scheme_type=scheme_type, sim_year=sim_year)
+                                  scheme_type=scheme_type, sim_year=sim_year,
+                                  application_efficiency_pct=application_efficiency_pct)
             y = res.summary.get("最终籽粒产量(t/ha)", 0)
             irr = res.summary.get("累计灌溉量(mm)", 0)
             wue = res.summary.get("水分利用效率(kg/m³)", 0)
@@ -115,7 +116,9 @@ def build_optimization_table(results: List[SimulationResult], sim_year: int) -> 
         # 灌溉参数列: SMT 方案显示阈值; 水层调控显示阶段上下限;
         #   正常灌溉对照按作物区分 —— 水稻自方案 A(2026-10-21) 起也走水层调控,
         #   玉米仍是固定日历 200mm。
-        if r.scheme_type == "SMT调控":
+        if r.mode=="rainfed":
+            param="零灌溉，不设置自动补水"
+        elif r.scheme_type == "SMT调控":
             param = f"SMT={r.smt}"
         elif r.scheme_type == "水层调控":
             param = describe_bands(r.smt)
@@ -145,6 +148,7 @@ def build_optimization_table(results: List[SimulationResult], sim_year: int) -> 
             "方案用途": "保水约束候选" if r.crop=="rice" and r.summary.get("关键期保护方案") else "缺水对比试验" if r.crop=="rice" else "SMT对比",
             "关键期无明水天数": r.summary.get("关键期无明水天数",0),
             "推荐候选": bool(r.summary.get("推荐候选",r.crop!="rice")),
+            "零灌溉对照": r.mode=="rainfed",
             "最终籽粒产量(t/ha)": yld,
             "最终干籽粒产量(t/ha)": r.summary.get("最终干籽粒产量(t/ha)", yld),
             "产量含水率(%)": r.summary.get("产量含水率(%)", 0.0),
@@ -153,36 +157,41 @@ def build_optimization_table(results: List[SimulationResult], sim_year: int) -> 
             "最终干物质量(t/ha)": r.summary.get("最终干物质量(t/ha)", 0),
             "水分利用效率(kg/m³)": r.summary.get("水分利用效率(kg/m³)", 0),
             "灌溉水分利用效率(kg/m³)": (
-                yld * 100 / irr if irr > 0 else 0.0  # t/ha→kg/ha；mm→10m³/ha
+                yld * 100 / irr if irr > 0 else None  # 零灌溉时该比值无定义
             ),
         })
     return pd.DataFrame(rows)
 
 
-def find_optimal(summary: pd.DataFrame) -> pd.DataFrame:
-    """寻找每种作物的95%峰值节水候选灌溉方案。
+def find_optimal(summary: pd.DataFrame, yield_target: float=0.95) -> pd.DataFrame:
+    """寻找达到所选峰值比例时净灌水最少的候选。
 
-    95%峰值节水候选定义: 产量达到 95% 最大产量时的最小灌水量
-    (即边际产量拐点,继续灌溉增产不显著)
+    比例默认为95%，可在90%—100%之间设置；这是保产节水约束，
+    不能据此证明产量拐点、经济最优或当地实测最优。
 
-    说明: 通过"方案类型"列识别优化方案(水层调控 / 水层管理 / SMT调控),
-          排除正常灌溉对照, 在优化方案中寻找拐点。
+    正常灌溉对照也参与比较，避免100%门槛时隐去实际最高产的对照。
+    水稻仍需满足关键期保水资格；不按方案名称预设候选。
     """
+    import math
+    if not math.isfinite(yield_target) or not .90<=yield_target<=1.:
+        raise ValueError("保产比例须在90%—100%之间")
     optimal_rows = []
     for crop_cn, sub in summary.groupby("作物"):
-        # 在优化方案(水层调控 / 水层管理 / SMT调控)中寻找最优,排除正常灌溉对照
-        opt_only = sub[sub["方案类型"].isin(["水层调控", "水层管理", "SMT调控"])].copy()
+        opt_only = sub[sub["方案类型"].isin(["水层调控", "水层管理", "SMT调控", "正常灌溉对照"])].copy()
         if opt_only.empty:
             continue
-        opt_only = opt_only.sort_values("累计灌溉量(mm)")
-        y_max = opt_only["最终籽粒产量(t/ha)"].max()
-        threshold = 0.95 * y_max
+        opt_only = opt_only.sort_values(["累计灌溉量(mm)","最终籽粒产量(t/ha)"],ascending=[True,False],kind="stable")
+        # Benchmark and candidate pool both include the reference treatment.
+        y_max = float(sub["最终籽粒产量(t/ha)"].max())
+        if not math.isfinite(y_max) or y_max<=0:
+            raise ValueError("峰值产量无效，无法筛选节水候选")
+        threshold = yield_target * y_max
         if "推荐候选" in opt_only:
             opt_only=opt_only[opt_only["推荐候选"].eq(True)]
         if opt_only.empty:
             continue
         # 找到第一个达到 95% 最大产量的点(按灌水量升序)
-        reached = opt_only[opt_only["最终籽粒产量(t/ha)"] >= threshold]
+        reached = opt_only[opt_only["最终籽粒产量(t/ha)"] >= threshold-1e-9]
         if reached.empty:
             continue
         optimal = reached.iloc[0]
@@ -190,6 +199,10 @@ def find_optimal(summary: pd.DataFrame) -> pd.DataFrame:
             "作物": crop_cn,
             "方案类型": optimal["方案类型"],
             "最优方案": optimal["灌溉方案"],
+            "候选方案": optimal["灌溉方案"],
+            "保产比例(%)": yield_target*100,
+            "较峰值减产(%)": (1-optimal["最终籽粒产量(t/ha)"]/y_max)*100,
+            "判定性质": "给定气象与参数下的节水候选，不是实测或经济最优",
             "灌溉参数": optimal["灌溉参数"],
             "累计灌溉量(mm)": optimal["累计灌溉量(mm)"],
             "累计毛灌溉量估算(mm)": optimal["累计毛灌溉量估算(mm)"],
@@ -197,7 +210,8 @@ def find_optimal(summary: pd.DataFrame) -> pd.DataFrame:
             "产量(t/ha)": optimal["最终籽粒产量(t/ha)"],
             "最大产量(t/ha)": y_max,
             "产量达最大百分比(%)": optimal["最终籽粒产量(t/ha)"] / y_max * 100,
-            "灌溉WUE(kg/m³)": optimal["灌溉水分利用效率(kg/m³)"],
+            "灌溉WUE(kg/m³)": None if pd.isna(optimal["灌溉水分利用效率(kg/m³)"]) else float(optimal["灌溉水分利用效率(kg/m³)"]),
+            **{col:optimal.get(col) for col in ("利用系数类型","灌溉水利用系数","水源取水量估算(mm)","取水量估算(m³/亩)") if col in optimal.index},
         })
     return pd.DataFrame(optimal_rows)
 
@@ -246,7 +260,7 @@ def plot_yield_irrigation_curve(results: List[SimulationResult], crop: str,
     curve_label = ("水层调控方案产量" if crop == "rice" else "SMT方案产量")
     ax1.plot(irr_opt, yld_opt, "o-", color="seagreen", linewidth=2.2, markersize=10,
              label=curve_label, zorder=3)
-    ax1.set_xlabel("累计净灌溉量（含泡田净补水，mm）", fontsize=12)
+    ax1.set_xlabel("累计净灌溉量（mm）", fontsize=12)
     ax1.set_ylabel("稻谷产量（14.5%含水率，t/ha）" if crop == "rice" else "干籽粒产量 (t/ha)", color="seagreen", fontsize=12)
     ax1.tick_params(axis="y", labelcolor="seagreen")
     ax1.grid(True, alpha=0.3)
@@ -382,15 +396,9 @@ def plot_irrigation_schedule(results: List[SimulationResult], crop: str,
             lab = f"{r.label}({total:.0f}mm)"
         else:
             lab = f"{r.label}(SMT={r.smt})" if r.smt else r.label
-        # 上子图: 实心=生育期补水；斜纹=移栽前逐日泡田净补水。
-        ax_bar.bar(d["模拟日期"], d["每日灌溉量(mm)"], width=bar_width,
+        # Display total irrigation without a separate preparation-water series.
+        ax_bar.bar(d["模拟日期"], d["每日总净灌溉量(mm)"], width=bar_width,
                     color=colors[i], alpha=0.75, label=lab)
-        if "泡田灌溉量(mm)" in d.columns:
-            pudd = d["泡田灌溉量(mm)"].fillna(0.0)
-            if float(pudd.sum()) > 0:
-                ax_bar.bar(d["模拟日期"], pudd, bottom=d["每日灌溉量(mm)"], width=bar_width * 0.55,
-                           color=colors[i], alpha=0.95, hatch="//",
-                           edgecolor="k", linewidth=0.3)
         # 下子图: 累积灌溉量折线（含泡田定额，与汇总表"累计灌溉量"一致）
         cum_col = d["每日总净灌溉量(mm)"]
         ax_cum.plot(d["模拟日期"], cum_col.cumsum(), "-",

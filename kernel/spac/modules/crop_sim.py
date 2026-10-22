@@ -47,6 +47,10 @@ def build_crop(crop: str) -> Crop:
     else:
         raise ValueError(f"未知作物: {crop}")
 
+    from config.soil_params import get_soil_config
+    profile_depth=sum(layer["depth"] for layer in get_soil_config(crop)["layers"])
+    if params["Zmax"]+.1>profile_depth+1e-8:
+        raise ValueError("作物最大根深超出已配置土壤剖面及0.1m底边界；请补充分层资料，不能让求解器隐式加深土层")
     crop_obj = Crop(
         c_name=preset,
         planting_date=planting,

@@ -7,7 +7,7 @@
   - 输出：逐日降雨量(Prcp)、参考蒸腾蒸发量(Et0)
   - 核心：FAO-56 Penman-Monteith 公式计算参考蒸散量 ET0
 
-数据来源：实测气象 CSV（可由 download_weather_era5.py 下载生成），
+数据来源：逐日气象 CSV（可为站点观测或ERA5再分析，不能一律称为实测），
 由 build_weather_df() 统一读取并计算 ET0。
 
 CSV 列要求（中文或英文列名均可识别）：
@@ -142,14 +142,14 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_weather_df(csv_path: str, lat_rad: float, altitude: float) -> pd.DataFrame:
-    """读取实测气象 CSV 并计算 ET0，返回 内核所需格式。
+    """读取逐日气象 CSV 并计算 ET0，返回 内核所需格式。
 
     CSV 不存在时显式报错（不生成合成数据）。
     返回 DataFrame 列：MinTemp, MaxTemp, Precipitation, ReferenceET, Date
     """
     if not os.path.exists(csv_path):
         raise FileNotFoundError(
-            f"实测气象 CSV 不存在: {csv_path}\n"
+            f"逐日气象 CSV 不存在: {csv_path}\n"
             f"请先运行 download_weather_era5.py 生成, 或检查路径。"
         )
     df = pd.read_csv(csv_path)
@@ -169,7 +169,7 @@ def build_weather_df(csv_path: str, lat_rad: float, altitude: float) -> pd.DataF
         doy, lat_rad, altitude, tdew=tdew,
     )
     df["Et0"] = et0
-    print(f"[大气交互模块] 已读取实测气象数据: {csv_path}  共 {len(df)} 天")
+    print(f"[大气交互模块] 已读取气象驱动数据: {csv_path}  共 {len(df)} 天（来源以原文件说明为准）")
     return df.rename(columns={
         "Tmin": "MinTemp", "Tmax": "MaxTemp",
         "Prcp": "Precipitation", "Et0": "ReferenceET",

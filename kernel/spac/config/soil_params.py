@@ -43,7 +43,7 @@ PADDY_SOIL = {
 
 # 玉米剖面沿用本次修改前配置，未重新率定。
 DRYLAND_SOIL = {
-    "name": "梧桐河旱田(白浆土) [GEE实测]",
+    "name": "梧桐河旱田(白浆土) [格网估计/等效水力参数待验证]",
     "preset": SOIL_PRESET_DRYLAND,
     "dz": [0.30, 0.30, 0.40],
     "layers": [

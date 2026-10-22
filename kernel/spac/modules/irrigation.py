@@ -4,8 +4,7 @@
 ==================================
 对应大纲 2.5 灌溉管理模块：
   通过设定不同生育期水层上下限 / SMT 阈值,模拟从"雨养型(重胁迫)"到"较高水量(过量灌溉)"
-  的完整梯度,得出不同灌水量时的产量响应曲线,寻找边际产量拐点
-  (经济最优灌溉制度)。
+  的对比梯度,得出不同灌水量时的模拟产量响应，并按显式保产约束筛选。
 
 方案设计(按作物类型分别采用不同优化策略):
   (1) 水稻 —— 水层上下限闭环调控(6 个方案, 逐日反馈改 Schedule, 内核零改动)
@@ -22,8 +21,8 @@
       (阈值越小胁迫越重), 形成完整优化梯度。
       正常灌溉对照(固定日历)作为基准。
 
-  经济最优点出现在中间档"适宜水量"附近(产量达 95% 最大值时的最小灌水量),
-  体现灌溉制度优化过程(非首档即为最优)。
+  节水候选为达到所选峰值比例时用水最少的方案，可能是零灌溉。
+  未输入水价、粮价及灌溉成本，不据此宣称经济最优或实测最优。
 
 SMT 四阶段阈值含义(%TAW,根区有效水下限,仅用于玉米):
   SMT[0] = 初始期 ( emergence - 10% CC )
@@ -82,7 +81,7 @@ def scheme_id(label: str) -> str:
     return str(label)
 
 # 方案类型
-TYPE_NORMAL = "正常灌溉对照"   # 基准档：水稻=官方规程上下限(水层调控) / 玉米=固定日历200mm
+TYPE_NORMAL = "正常灌溉对照"   # 基准情景：水稻=水层反馈，玉米=固定日历净144mm，均非实测处理记录
 TYPE_PADDY = "水层管理"        # 水稻固定水层管理(旧: 固定日期+固定定额, 已停用但保留)
 TYPE_WLAYER = "水层调控"       # 水稻按阶段上下限闭环调控(现行)
 TYPE_SMT = "SMT调控"           # 玉米 SMT 调控
@@ -232,7 +231,7 @@ def _build_rice_schedule(sim_year: int, depths: List[int]) -> pd.DataFrame:
 #
 #  设计原理:
 #  - 低阈值(雨养型/低水量): 允许土壤水大量消耗 → 产量低 → 优化过程前段
-#  - 中阈值(适宜水量): 产量接近最大值, 灌水量适中 → 经济最优区
+#  - 中阈值: 一组供比较的补灌触发条件，不预设最优档位
 #  - 高阈值(较高水量): 几乎无胁迫 → 产量趋于平稳/略降 → 灌水浪费
 #
 #  SMT 数值语义: 当日 Dr/TAW > 1 - SMT/100 时灌溉(补到田间持水)。
@@ -248,11 +247,11 @@ def _build_rice_schedule(sim_year: int, depths: List[int]) -> pd.DataFrame:
 
 SMT_LEVELS: Dict[str, List[List[int]]] = {
     "corn": [
-        [3,  3,  3,  3],    # L1 雨养型    ≈60mm  (几乎不灌溉)
-        [12, 15, 15, 8],    # L2 低水量    ≈180mm
-        [25, 32, 30, 18],   # L3 中低水量  ≈236mm ← 实测产量峰值常在附近
-        [45, 55, 50, 32],   # L4 适宜水量  ≈308mm ← 正常灌溉基准(200mm)之上限
-        [70, 80, 75, 50],   # L5 较高水量  ≈320mm (过量, 产量转为略降)
+        [3,  3,  3,  3],    # L1 占位；主流程用真正关闭灌溉替代本阈值
+        [12, 15, 15, 8],    # L2 低水量；实际水量由气象与土壤反馈计算
+        [25, 32, 30, 18],   # L3 中低水量
+        [45, 55, 50, 32],   # L4 适宜水量是方案名，不代表已经校准为最优
+        [70, 80, 75, 50],   # L5 较高水量
     ],
 }
 
@@ -277,9 +276,9 @@ def _build_dryland_normal_schedule(crop: str, sim_year: int) -> pd.DataFrame:
         # 关键期(拔节孕穗/抽雄吐丝/灌浆)3次, 苗期1次
         dates = [
             f"{sim_year}/05/15",   # 苗期补水
-            f"{sim_year}/07/05",   # 拔节孕穗(关键期)
-            f"{sim_year}/07/20",   # 抽雄吐丝(关键期)
-            f"{sim_year}/08/05",   # 灌浆初(关键期)
+            f"{sim_year}/06/15",   # 来源表6月中旬拔节的代表日期
+            f"{sim_year}/07/25",   # 来源表7月下旬吐丝的代表日期
+            f"{sim_year}/08/15",   # 来源表8月中旬灌浆的代表日期
         ]
         depths = [32, 40, 48, 40]   # 毛量合计 160 mm（净 144 mm）
     else:
@@ -307,7 +306,7 @@ def get_smt_schemes(crop: str) -> List[SchemeTuple]:
     """返回作物的全部灌溉方案列表(正常灌溉对照 + 5 档优化方案)。
 
     水稻: 正常灌溉对照(官方规程上下限) + 5 档水层调控方案(阶段水层上下限)
-    玉米: 正常灌溉对照(固定日历 200mm) + 5 档 SMT 调控方案
+    玉米: 固定净定额144mm对照 + 零灌溉对照 + 4档SMT补灌
 
     Returns
     -------
@@ -336,8 +335,9 @@ def get_smt_schemes(crop: str) -> List[SchemeTuple]:
 
     # 玉米: 正常灌溉对照 + 5 档 SMT
     schemes = [(NORMAL_LABEL, None, "normal", None, TYPE_NORMAL)]
-    for label, smt in zip(SCHEME_LABELS, SMT_LEVELS[key]):
-        schemes.append((label, list(smt), "smt", None, TYPE_SMT))
+    for index, (label, smt) in enumerate(zip(SCHEME_LABELS, SMT_LEVELS[key])):
+        # A rainfed treatment must have irrigation disabled, even in dry years.
+        schemes.append((label, None if index==0 else list(smt), "rainfed" if index==0 else "smt", None, TYPE_SMT))
     return schemes
 
 
@@ -348,7 +348,8 @@ def get_smt_schemes(crop: str) -> List[SchemeTuple]:
 def build_irrigation(crop: str, smt: Optional[List[int]] = None,
                      mode: str = "smt",
                      depths: Optional[List[int]] = None,
-                     sim_year: Optional[int] = None) -> IrrigationManagement:
+                     sim_year: Optional[int] = None,
+                     application_efficiency_pct: float = 90.) -> IrrigationManagement:
     """根据作物与方案构建灌溉管理对象。
 
     Parameters
@@ -361,6 +362,14 @@ def build_irrigation(crop: str, smt: Optional[List[int]] = None,
     sim_year : 年份(用于生成灌水日历日期)
     """
     is_rice = crop.lower() in ("rice", "paddy", "水稻")
+    import math
+    efficiency=float(application_efficiency_pct)
+    if not math.isfinite(efficiency) or not 0<efficiency<=100:
+        raise ValueError("田间施加效率须在(0,100]%内")
+    if mode=="rainfed":
+        if is_rice:
+            raise ValueError("水稻缺水试验仍含泡田，不能当作真正零灌溉处理")
+        return IrrigationManagement(irrigation_method=0,AppEff=efficiency)
     if sim_year is None:
         from config.wutonghe_config import SIM_YEAR
         sim_year = SIM_YEAR
@@ -373,7 +382,7 @@ def build_irrigation(crop: str, smt: Optional[List[int]] = None,
             schedule = _build_rice_schedule(sim_year, RICE_NORMAL_DEPTHS)
             return IrrigationManagement(
                 irrigation_method=3, Schedule=schedule,
-                MaxIrr=100, WetSurf=100, AppEff=90,
+                MaxIrr=100, WetSurf=100, AppEff=efficiency,
             )
         if mode == "wlayer":
             # 水层闭环调控: 日历全 0, 每天由 PaddyLayerController 回填当日定额
@@ -384,7 +393,7 @@ def build_irrigation(crop: str, smt: Optional[List[int]] = None,
             schedule = pd.DataFrame({"Date": dates, "Depth": 0.0})
             return IrrigationManagement(
                 irrigation_method=3, Schedule=schedule,
-                MaxIrr=300, WetSurf=100, AppEff=90,
+                MaxIrr=300, WetSurf=100, AppEff=efficiency,
             )
         if mode == "paddy":
             # 【旧方案, 保留作回退】水层管理(固定日期 + 指定定额梯度)
@@ -393,31 +402,33 @@ def build_irrigation(crop: str, smt: Optional[List[int]] = None,
             schedule = _build_rice_schedule(sim_year, depths)
             return IrrigationManagement(
                 irrigation_method=3, Schedule=schedule,
-                MaxIrr=100, WetSurf=100, AppEff=90,
+                MaxIrr=100, WetSurf=100, AppEff=efficiency,
             )
         # mode='smt' 用于水稻时退化为正常灌溉(SMT 不适合淹水水稻)
         schedule = _build_rice_schedule(sim_year, RICE_NORMAL_DEPTHS)
         return IrrigationManagement(
             irrigation_method=3, Schedule=schedule,
-            MaxIrr=100, WetSurf=100, AppEff=90,
+            MaxIrr=100, WetSurf=100, AppEff=efficiency,
         )
 
     # ---------- 玉米(旱作) ---------- #
     if mode == "normal":
         schedule = _build_dryland_normal_schedule(crop, sim_year)
+        # CK is a fixed NET reference scenario (144 mm), not annual observation.
+        schedule["Depth"] *= 90./efficiency
         return IrrigationManagement(
             irrigation_method=3, Schedule=schedule,
-            MaxIrr=60, WetSurf=100, AppEff=90,
+            MaxIrr=float(schedule["Depth"].max()), WetSurf=100, AppEff=efficiency,
         )
 
     # SMT 自动调控
     if smt is None:
         # 雨养(无灌溉)——保留接口,主流程不再使用
-        return IrrigationManagement(irrigation_method=0)
+        return IrrigationManagement(irrigation_method=0,AppEff=efficiency)
 
     return IrrigationManagement(
         irrigation_method=1, SMT=list(smt),
-        MaxIrr=60, WetSurf=100, AppEff=90,
+        MaxIrr=54./(efficiency/100.), WetSurf=100, AppEff=efficiency,
     )
 
 
