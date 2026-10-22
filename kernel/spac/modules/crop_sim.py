@@ -65,10 +65,14 @@ def crop_summary(crop: str) -> str:
         name, p = "玉米", CORN_PARAMS
     else:
         raise ValueError(f"未知作物: {crop}")
+    actual = build_crop(crop)
     lines = [f"作物: {name}"]
     for k in ("CC0", "CCx", "CGC", "CDC", "Kcb", "WP", "HI0",
               "Zmax", "p_up1", "p_up2", "p_up3", "Tbase", "Tupp", "PlantPop"):
-        lines.append(f"  {k:10s} = {p[k]}")
+        value = getattr(actual, k, None)
+        if k == "p_up1":
+            value = float(actual.p_up[0])
+        lines.append(f"  {k:10s} = {value}")
     return "\n".join(lines)
 
 

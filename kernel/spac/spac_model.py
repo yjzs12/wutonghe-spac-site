@@ -88,6 +88,7 @@ class SimulationResult:
     raw_water_flux: Optional[pd.DataFrame] = None
     raw_water_storage: Optional[pd.DataFrame] = None
     raw_final_stats: Optional[pd.DataFrame] = None
+    puddling_daily: Optional[pd.DataFrame] = None
 
     def save_csv(self, path: str) -> None:
         self.daily.to_csv(path, index=False, encoding="utf-8-sig")
@@ -114,6 +115,8 @@ class SimulationResult:
             if self.raw_final_stats is not None:
                 self.raw_final_stats.to_excel(
                     writer, sheet_name="final_stats", index=False)
+            if self.puddling_daily is not None and not self.puddling_daily.empty:
+                self.puddling_daily.to_excel(writer, sheet_name="puddling_balance", index=False)
 
 
 class SPACCropModel:
@@ -198,14 +201,25 @@ class SPACCropModel:
         # 才被 outputs_when_model_is_finished 转为 DataFrame。
         if self.mode == "wlayer":
             from modules.paddy_control import (
-                PaddyLayerController, install, uninstall, describe_bands,
+                PaddyLayerController, install, uninstall, describe_bands, protected_scheme,
             )
             self.controller = PaddyLayerController(
-                self.smt, app_eff=self._irr.AppEff, max_irr=self._irr.MaxIrr)
+                self.smt, app_eff=self._irr.AppEff, max_irr=self._irr.MaxIrr,
+                protect_critical=protected_scheme(self.label))
             print("  水层上下限: " + describe_bands(self.smt))
             install(self.controller)
         try:
-            self.model.run_model(till_termination=True)
+            if self.crop=="rice" and pd.Timestamp(start)<pd.Timestamp(f"{sim_year}/{self._crop.planting_date}"):
+                # Natural pre-season FC is an explicit unmeasured April-1 prior.
+                # Preserve the selected transplant profile in thini, but do not
+                # give the fallow field a second uncounted saturated profile.
+                self.model._initialize()
+                self.model._init_cond.thini=self.model._init_cond.thini.copy()
+                self.model._init_cond.th=np.asarray(self.model._param_struct.Soil.profile.th_fc,dtype=float).copy()
+                self.model._init_cond.surface_storage=0.
+                self.model.run_model(till_termination=True,initialize_model=False)
+            else:
+                self.model.run_model(till_termination=True)
         finally:
             if self.mode == "wlayer":
                 uninstall()
@@ -274,23 +288,61 @@ class SPACCropModel:
         # 3.5) 每日灌溉量 (mm)  <- water_flux 的 IrrDay 列(索引6)
         #      method=1(SMT自动调控): 模型根据土壤水分目标自动触发的灌水量
         #      method=3(固定日历):    按预设灌水日历的当日定额(非灌水日为0)
-        #      累计求和即为方案总灌溉量, 可用于绘制灌溉制度时序图
-        daily["每日灌溉量(mm)"] = wf_arr[:, 6]
+        #      原始毛量另列；每日灌溉量为生育期补充净量，不包含泡田。
+        # IrrDay施加毛量在入渗时才乘AppEff，主显示统一净量，毛量另列。
+        # 方法4的IrrDay已是净量，不能再乘一次效率。
+        efficiency = float(self._irr.AppEff) / 100.0
+        if not 0 < efficiency <= 1:
+            raise ValueError("田间灌水效率必须在(0,100]%范围内")
+        raw_irrigation = wf_arr[:, 6]
+        if int(self._irr.irrigation_method) == 4:
+            daily["每日灌溉量(mm)"] = raw_irrigation
+            daily["每日毛灌溉量(mm)"] = raw_irrigation / efficiency
+        else:
+            daily["每日毛灌溉量(mm)"] = raw_irrigation
+            daily["每日灌溉量(mm)"] = raw_irrigation * efficiency
 
-        # 3.6) 泡田灌溉量 (mm) —— 移栽日一次性注入的泡田定额
-        #   内核在移栽日之前 growing_season=False, 强制 Irr=0, 泡田水无法通过
-        #   Schedule 灌入; 泡田效果只能由初始墒情(SAT)+插秧水层表达, 这里把
-        #   对应的水量显式补记为移栽日的一笔灌溉, 使水量平衡与灌溉统计闭合。
-        #   ⚠ 内核的 `每日灌溉量(mm)` 保持原值, 灌水"次数"口径不受影响。
-        from modules.initial_condition import puddling_requirement
-        pudd = puddling_requirement(self.crop)
-        daily["泡田灌溉量(mm)"] = 0.0
-        if pudd > 0:
-            # water_flux 第3列 = dap: 生长季内自 1 递增, 非生长季恒为 0
-            dap_col = wf_arr[:, 2]
-            gs_idx = np.where(dap_col == 1)[0]
-            if gs_idx.size:
-                daily.loc[gs_idx[0], "泡田灌溉量(mm)"] = pudd
+        # Separate pre-transplant balance, joined to daily reporting without altering
+        # observed rainfall or the crop solver. Native fallow fluxes are retained in
+        # raw sheets; puddling_balance is the authoritative preparation-stage ledger.
+        from modules.initial_condition import initial_layer_water, PADDY_INIT_WATER_LAYER
+        from modules.puddling import puddling_balance
+        prep=None
+        prep_columns={"irrigation_net_mm":"泡田灌溉量(mm)",
+                      "storage_change_mm":"泡田储水增量(mm)",
+                      "evaporation_mm":"泡田蒸发量(mm)",
+                      "percolation_mm":"泡田渗漏量(mm)",
+                      "rain_mm":"泡田降雨量(mm)","overflow_mm":"泡田溢流量(mm)"}
+        for column in prep_columns.values():
+            daily[column]=0.0
+        if self.crop == "rice":
+            year=self.cfg.sim_year if self.cfg.sim_year is not None else SIM_YEAR
+            plant=pd.Timestamp(f"{year}/{self._crop.planting_date}")
+            from modules.puddling import PUDDLING_DAYS
+            prep_start=plant-pd.Timedelta(days=PUDDLING_DAYS)
+            positions=np.flatnonzero(dates.eq(prep_start))
+            if not len(positions) or positions[0]<1:
+                raise ValueError("模拟期须覆盖泡田开始前至少一天，以衔接泡田前土壤储水")
+            initial_profile=[float(daily.iloc[positions[0]-1][f"第{j}层土壤含水率"]) for j in range(1,len(layer_depths)+1)]
+            prep=puddling_balance(self.weather_df,plant,self.cfg.initial_moisture,initial_soil_water=initial_profile)
+            lookup=prep.set_index("Date")
+            for source,column in prep_columns.items():
+                daily[column]=dates.map(lookup[source]).fillna(0.).to_numpy()
+            from config.soil_params import get_soil_config
+            layers=get_soil_config(self.crop)["layers"]
+            target=initial_layer_water(self.crop,self.cfg.initial_moisture)
+            soil_store=sum((v-old)*lay["depth"]*1000 for v,old,lay in zip(target,initial_profile,layers))
+            for rec in prep.itertuples():
+                mask=dates.eq(rec.Date)
+                fraction=min(1.,rec.storage_after_mm/soil_store) if soil_store>0 else 0.
+                for j,(v,old) in enumerate(zip(target,initial_profile),1):
+                    daily.loc[mask,f"第{j}层土壤含水率"]=old+fraction*(v-old)
+                daily.loc[mask,"田间水层深度(mm)"]=min(PADDY_INIT_WATER_LAYER,max(0.,rec.storage_after_mm-soil_store))
+
+        daily["每日总净灌溉量(mm)"] = daily["每日灌溉量(mm)"] + daily["泡田灌溉量(mm)"]
+        # 泡田毛量仅按相同田间效率估算，不等于渠首取水量。
+        daily["每日总毛灌溉量估算(mm)"] = (
+            daily["每日毛灌溉量(mm)"] + daily["泡田灌溉量(mm)"] / efficiency)
 
         # 4) 冠层覆盖度 (%)  <- crop_growth 的 canopy_cover (0-1) × 100
         #    cg_arr 列: [step, season, dap, gdd, gdd_cum, z_root, canopy_cover, ...]
@@ -301,15 +353,24 @@ class SPACCropModel:
         transp = wf_arr[:, 15]   # Tr
         soil_evap = wf_arr[:, 13]  # Es
         daily["蒸腾蒸发量(mm)"] = transp + soil_evap
+        if prep is not None:
+            prep_mask=dates.isin(prep.Date)
+            # Replace, do not add to, the native fallow evaporation for these days.
+            daily.loc[prep_mask,"蒸腾蒸发量(mm)"]=dates[prep_mask].map(prep.set_index("Date").evaporation_mm).to_numpy()
 
         # 6) 干物质量 (t/ha)  <- crop_growth 的 biomass (g/m²) × 0.01
         daily["干物质量(t/ha)"] = cg_arr[:, 8] * 0.01
 
-        # 7) 籽粒产量 (t/ha)  <- crop_growth 的 DryYield
-        daily["籽粒产量(t/ha)"] = cg_arr[:, 12]
+        # 水稻主报告折算至14.5%含水率，保留干籽粒；玉米保持原有干重口径。
+        from config.crop_params import yield_moisture
+        grain_moisture = yield_moisture(self.crop)
+        daily["干籽粒产量(t/ha)"] = cg_arr[:, 12]
+        daily["籽粒产量(t/ha)"] = cg_arr[:, 12] / (1.0-grain_moisture)
+        daily["产量含水率(%)"] = grain_moisture * 100.0
 
         # 8) 水分利用效率 (kg/m³) = 当日累积产量 / 当日累积耗水（动态变化）
-        cum_yield = np.nancumsum(daily["籽粒产量(t/ha)"].values)
+        # DryYield已是截至当日的累计产量，不能再次累加。
+        cum_yield = daily["籽粒产量(t/ha)"].to_numpy()
         cum_et = np.nancumsum(daily["蒸腾蒸发量(mm)"].values)
         wue = np.zeros_like(cum_yield)
         mask = cum_et > 1e-6
@@ -338,6 +399,7 @@ class SPACCropModel:
             raw_water_flux=raw_wf if isinstance(raw_wf, pd.DataFrame) else None,
             raw_water_storage=raw_ws if isinstance(raw_ws, pd.DataFrame) else None,
             raw_final_stats=raw_fs if isinstance(raw_fs, pd.DataFrame) else None,
+            puddling_daily=prep,
         )
 
     def _summarize(self, daily: pd.DataFrame) -> Dict[str, float]:
@@ -347,22 +409,31 @@ class SPACCropModel:
         s["全季蒸腾蒸发量(mm)"] = float(np.nansum(daily["蒸腾蒸发量(mm)"]))
         s["最终干物质量(t/ha)"] = float(np.nanmax(daily["干物质量(t/ha)"]))
         s["最终籽粒产量(t/ha)"] = float(np.nanmax(daily["籽粒产量(t/ha)"]))
+        s["最终干籽粒产量(t/ha)"] = float(np.nanmax(daily["干籽粒产量(t/ha)"]))
+        s["产量含水率(%)"] = float(daily["产量含水率(%)"].iloc[-1])
         s["水分利用效率(kg/m³)"] = float(daily["水分利用效率(kg/m³)"].iloc[-1])
-        # 累计灌溉量（从水量通量数据中提取）
-        # water_flux 列: [step, season, dap, Wr, z_gw, surface_storage,
-        #                 IrrDay(6), Infl, Runoff, DeepPerc, TileDrain, CR,
-        #                 GwIn, Es(13), EsPot(14), Tr(15), TrPot(16)]
-        # ★ 累计灌溉量 = 内核生育期灌溉(IrrDay) + 泡田定额(移栽日一次性)
-        #   "补充灌溉量"单列内核部分, 便于与"总灌溉量"区分上报。
-        try:
-            wf_arr = np.array(self.model.get_water_flux())[:len(daily)]
-            sup = float(np.nansum(wf_arr[:, 6]))   # IrrDay
-        except Exception:
-            sup = 0.0
+        # 累计净量包含完整简化泡田水量平衡的净补水，储水与各项通量另列。
+        sup = float(np.nansum(daily["每日灌溉量(mm)"]))
         pudd = float(np.nansum(daily.get("泡田灌溉量(mm)", pd.Series([0.0]))))
         s["补充灌溉量(mm)"] = sup
         s["泡田定额(mm)"] = pudd
+        for col in ("泡田储水增量(mm)","泡田蒸发量(mm)","泡田渗漏量(mm)","泡田降雨量(mm)","泡田溢流量(mm)"):
+            s[col]=float(daily[col].sum())
         s["累计灌溉量(mm)"] = sup + pudd
+        s["补充毛灌溉量(mm)"] = float(np.nansum(daily["每日毛灌溉量(mm)"]))
+        s["累计毛灌溉量估算(mm)"] = float(np.nansum(daily["每日总毛灌溉量估算(mm)"]))
+        s["田间灌水效率(%)"] = float(self._irr.AppEff)
+        from modules.paddy_control import critical_water_rule,protected_scheme
+        if self.crop=="rice":
+            critical=daily["模拟日期"].map(lambda value: critical_water_rule(value) is not None)
+            failures=int((critical & daily["田间水层深度(mm)"].le(.5)).sum())
+            s["关键期无明水天数"]=failures
+            s["关键期保护方案"]=int(protected_scheme(self.label))
+            s["推荐候选"]=int(protected_scheme(self.label) and failures==0)
+        else:
+            s["关键期无明水天数"]=0
+            s["关键期保护方案"]=0
+            s["推荐候选"]=1
         return s
 
 

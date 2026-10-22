@@ -1,44 +1,18 @@
 # -*- coding: utf-8 -*-
+"""Soil profile priors for the coupled water/crop calculation.
+
+SAT/FC/PWP are SoilGrids estimates, not on-site observations. Ksat is an
+effective saturated-conductivity parameter in this simplified three-layer
+profile, not an observed daily percolation series. The solver also derives
+the drainage characteristic tau from Ksat. Groundwater contribution is absent.
+
+The source workbook contains 50%/75% water-year REFERENCE quotas, not annual
+2024/2025 observations. No local irrigation records were supplied. Consequently
+2.8 mm/day is retained as an uncertain prior, not identified by fitting those
+quotas to individual years. External percolation data are contextual evidence,
+not independent validation; initial deep-soil storage changes seasonal drainage.
+Earlier selection records are preserved in the dated source backup/audit report.
 """
-土壤参数配置 —— 土壤水分模块
-================================
-依据大纲 2.3 土壤水分模块：
-  将土壤剖面划分为多层，设定相应深度和水力参数，以 1 天为时间步长
-  进行水分运移模拟，包括饱和含水率(SAT)、田间持水率(FC)、凋萎系数(PWP)、
-  饱和导水率(Ks)和渗透系数(τ)。
-
-数据来源：
-  SAT/FC/PWP/容重/质地/有机碳/pH —— GEE (SoilGrids 250m) 实测提取
-  Ks —— Cosby(1984) 公式给出无扰动上限，再按压实/水耕状况下调；
-        犁底层取值另以「寒区稻田生育期实测渗漏量」反算标定（见下）
-  数据文件: data/Soil_Parameters_3crops.csv
-  采样点: 水稻(130.788, 47.212)  玉米(130.761, 47.364)
-
------------------------------------------------------------------- #
-犁底层 Ksat 的确定依据（2026-10-21 复核，Ks 5.0 → 4.0 mm/d）
------------------------------------------------------------------- #
-① 机理区间：稻田长期耕耙使黏粒淋洗淀积形成犁底层，透水性大幅下降，
-   长期种稻稻田渗漏强度一般 1–2 mm/d，重壤/中壤 1–4 mm/d，轻壤土可达
-   6 mm/d（水利部《水情科普·稻田渗漏》；《农田水利学》稻田渗漏章）。
-   本项目耕作层砂粒 36–40%，属偏轻质地，应取区间上限一侧。
-② 实测校核：寒地稻田全生育期实测渗漏量 448.70 / 466.06 / 497.71 /
-   533.73 mm（4 种灌溉模式，内蒙古寒区，《东北农业大学学报》2022,
-   DOI 10.19720/j.cnki.issn.1005-9369.2022.09.006）。
-   本模型 2024–2026 年对照 CK 生育期深层渗漏随 Ksat 的变化：
-       Ksat=3.0 → 359/361/361 mm（低于实测区间）
-       Ksat=4.0 → 453/480/479 mm（三年全部落入 449–534 mm 实测区间）
-       Ksat=5.0 → 560/571/592 mm（三年全部高于实测区间）
-   ⇒ 取 Ksat = 4.0 mm/d。
-③ 旁证：黑土区犁底层容重实测约 1.5 g/cm³，SoilGrids 给 1.30 g/cm³，
-   系统性低估压实度，故不得直接用 Cosby 估算值（127 mm/d）。
------------------------------------------------------------------- #
-
-三层结构(深度 cm):
-  层1 (0-30):  耕作层       —— 取 0,10,30 cm 三层平均
-  层2 (30-60): 犁底层/白浆层 —— 取 60 cm 值
-  层3 (60-100):心土层/淀积层 —— 取 100 cm 值
-"""
-
 from __future__ import annotations
 
 # --------------------------------------------------------------------------- #
@@ -49,44 +23,25 @@ SOIL_PRESET_PADDY = "custom"       # 水田：自定义（按层给实测值）
 SOIL_PRESET_DRYLAND = "custom"    # 旱田：自定义（按层给实测值）
 
 # --------------------------------------------------------------------------- #
-#  水田（水稻）剖面 —— 实测土壤水力参数
+#  水田（水稻）剖面 —— 格网估计与文献约束参数
 #  采样点: 130.788°E, 47.212°N
 #  质地: 砂质粘壤土(耕作层) → 壤土(犁底层/心土层)
 # --------------------------------------------------------------------------- #
 PADDY_SOIL = {
-    "name": "梧桐河水稻土(草甸土) [GEE实测]",
+    "name": "梧桐河水稻土 [格网估计/等效水力参数待验证]",
     "preset": SOIL_PRESET_PADDY,
-    "dz": [0.30, 0.30, 0.40],                 # 三层，总深 1.0 m
+    "dz": [0.30, 0.30, 0.40],
     "layers": [
-        # 层1 耕作层 (0-30cm): 砂36.3% 黏23.0% 粉40.7%  容重1117 kg/m³  OC 40 g/kg
-        # Cosby估算 Ks=123 mm/day,但水稻田长期淹水形成闭塞结构,
-        # 文献实测水稻田表层 Ks 通常 10-30 mm/day,此处取 8 mm/day
-        # 该层非限制层(犁底层 4 mm/d 才是通量控制层),取值仅影响泡田/降雨的
-        # 瞬时入渗速率,不影响全季渗漏总量
-        # penetrability: 内核要求百分数(0-100), 100=完全可穿透
-        {"depth": 0.30, "SAT": 0.579, "FC": 0.367, "PWP": 0.153, "Ks": 8.0,   "penetrability": 100},
-        # 层2 犁底层 (30-60cm): 砂38% 黏24% 粉38%  容重1300 kg/m³  OC 15 g/kg
-        # Cosby=127 偏高（SoilGrids 容重 1.30 低估压实度，实测犁底层约 1.5 g/cm³）
-        # ★ 2026-10-21 收尾标定：5.0 → 4.0 → **3.4 mm/d**（初始墒情改回 SAT 泡田态后重标）
-        #   初始墒情取 SAT 后，剖面常年饱和，深层渗漏退化为"Ksat × 淹水天数"的上限控制，
-        #   于是可直接反解：生育期 154 d，实测渗漏 448.7–533.7 mm
-        #   ⇒ Ksat ∈ [2.91, 3.46] mm/d。取区间上沿 **3.4**（保证灌溉量不致过低），
-        #   对应生育期渗漏 3.4 × 154 ≈ 524 mm，落入实测区间中部偏上。
-        #   （Ksat=4.0 → 617 mm 超上限；3.5 → 540 mm 略超；3.0 → 462 mm 偏低）
-        #   交叉检查：CK 全季灌溉（含泡田 228.7 mm）706/850/595 mm，
-        #   与黑龙江水稻灌溉定额 600–900 mm（6000–9000 m³/ha）一致。
-        {"depth": 0.30, "SAT": 0.509, "FC": 0.320, "PWP": 0.159, "Ks": 3.4,   "penetrability": 40},
-        # 层3 心土层 (60-100cm): 砂39% 黏24% 粉37%  容重1310 kg/m³  OC 15 g/kg
-        # Cosby估算=131,粘土心土实际较低
-        {"depth": 0.40, "SAT": 0.506, "FC": 0.310, "PWP": 0.159, "Ks": 50.0,  "penetrability": 70},
+        # SAT/FC/PWP为格网估计；分层和穿透率为简化假设，不是实测犁底层。
+        {"depth": 0.30, "SAT": 0.579, "FC": 0.367, "PWP": 0.153, "Ks": 8.0, "penetrability": 100},
+        # Ksat=2.8mm/d保留为等效先验，敏感性范围2.0—3.4；无本地实际灌水记录，未重新标定。
+        # 该量既控制排水通量上限，也通过tau=0.0866*Ksat**0.35影响非饱和排水。
+        {"depth": 0.30, "SAT": 0.509, "FC": 0.320, "PWP": 0.159, "Ks": 2.8, "penetrability": 40},
+        {"depth": 0.40, "SAT": 0.506, "FC": 0.310, "PWP": 0.159, "Ks": 50.0, "penetrability": 70},
     ],
 }
 
-# --------------------------------------------------------------------------- #
-#  旱田（玉米）剖面 —— 实测土壤水力参数
-#  采样点: 130.761°E, 47.364°N
-#  质地: 粘壤土(耕作层) → 粉质粘壤土(白浆层/淀积层)
-# --------------------------------------------------------------------------- #
+# 玉米剖面沿用本次修改前配置，未重新率定。
 DRYLAND_SOIL = {
     "name": "梧桐河旱田(白浆土) [GEE实测]",
     "preset": SOIL_PRESET_DRYLAND,

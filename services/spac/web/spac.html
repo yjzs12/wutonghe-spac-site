@@ -23,7 +23,7 @@
 
   <h1 class="page-title">基于 SPAC 的典型作物生长模型</h1>
   <p class="page-desc">
-    土壤-作物-大气连续体耦合模拟 ｜ FAO No.56 产量-水分响应 ｜ 每作物 6 档灌溉方案（对照 CK + 水量梯度 L1–L5）
+    土壤-作物-大气连续体耦合模拟 ｜ FAO-56参考蒸散与作物水分生产力计算 ｜ 每作物6档灌溉方案（对照CK + 水量梯度L1–L5）
     ｜ 最优判据：产量达 95% 峰值的最小灌水量
   </p>
 
@@ -69,7 +69,7 @@
           <div class="field">
             <label>模拟年份</label>
             <select id="yearSelect"><option value="">（无数据，请先导入气象数据）</option></select>
-            <div class="hint">模拟期 <code id="periodHint">04-01 ~ 10-15</code>，含前期土壤水分初始化（水稻取泡田饱和态并计入泡田定额 228.7 mm，玉米取田间持水率）。</div>
+            <div class="hint">模拟期 <code id="periodHint">04-01 ~ 10-15</code>。总净灌水已含移栽前5天泡田净补水：按当年泡田前含水率算储水缺口，加蒸发、渗漏并扣降雨，不另加固定泡田量。泡田结束时设定湿润层饱和。L1/L2只作缺水试验；水稻候选须通过返青、孕穗开花期保水检查。产量暂按14.5%含水率折算，下载表保留干重。春季初墒、湿润深度和泡田历时仍待实测验证。</div>
           </div>
 
           <div class="field">
@@ -128,8 +128,8 @@
         </details>
         <details class="help">
           <summary>输出结果说明</summary>
-          <div class="body">irrigation_optimization_年份.csv   8 方案汇总表（灌水量 / 产量 / ET / WUE）
-optimal_irrigation_年份.csv        经济最优灌溉制度（产量达 95% 峰值）
+          <div class="body">irrigation_optimization_年份.csv   方案汇总表（灌水量 / 标准水分产量与干重 / ET / WUE）
+optimal_irrigation_年份.csv        95%峰值节水候选灌溉制度（产量达 95% 峰值）
 water_requirement_年份.csv         作物需水量逐月统计（ET0 / ETc / Kc / 降雨 / 灌溉）
 daily_作物_方案_年份.csv           各方案逐日结果
 original_作物_方案_年份.xlsx       内核原始输出（4 个工作表）
@@ -204,7 +204,7 @@ figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都�
         <div class="grid-2">
           <div class="card" id="resultCard">
             <div class="card-head">
-              <h2>经济最优灌溉制度</h2>
+              <h2>95%峰值节水候选灌溉制度</h2>
               <span class="sub">产量达 95% 峰值的最小灌水量</span>
             </div>
             <div class="card-body" id="optimalBody"><div class="empty-state">暂无</div></div>

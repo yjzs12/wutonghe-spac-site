@@ -209,17 +209,20 @@ function clearResults() {
 
 function renderResult(jobId, res) {
   lastResult = res;
+  const currentRice = res.model_revision === '2026-10-22-rice-v4';
+  const standardRice = currentRice || res.model_revision === '2026-10-22-rice-v3';
+  const netWater = ['net_with_puddling_v2', 'net_profile_puddling_v3', 'net_puddling_balance_v4'].includes(res.irrigation_basis);
 
   /* --- KPI 条：把最优灌溉制度摊成指标卡 --- */
   const kpis = [];
   if (res.kpi && res.kpi.length) {
     res.kpi.forEach(k => {
-      kpis.push({ k: `${k['作物']} · 最优灌水量`, v: fmtNum(k['累计灌溉量(mm)'], 1), unit: 'mm', kind: 'accent' });
+      kpis.push({ k: `${k['作物']} · 最优${netWater ? '净' : ''}灌水量`, v: fmtNum(k['累计灌溉量(mm)'], 1), unit: 'mm', kind: 'accent' });
       kpis.push({ k: `${k['作物']} · 最优方案`, v: k['最优方案'], unit: '' });
-      /* 本区产量对灌溉量的响应很平：最低档方案也能拿到接近峰值产量，
-         所以「最优方案」常落在胁迫档位上。把相对产量一起摆出来，避免误读。 */
+      /* 展示相对产量；天气充足时可以出现平台，不预设最佳档位。 */
       kpis.push({ k: `${k['作物']} · 达峰值产量`, v: fmtNum(k['产量达最大百分比(%)'], 1), unit: '%' });
-      kpis.push({ k: `${k['作物']} · 产量`, v: fmtNum(k['产量(t/ha)'], 2), unit: 't/ha' });
+      const yieldLabel = standardRice && k['作物'] === '水稻' ? '产量（14.5%水分）' : '产量';
+      kpis.push({ k: `${k['作物']} · ${yieldLabel}`, v: fmtNum(k['产量(t/ha)'], 2), unit: 't/ha' });
       kpis.push({ k: `${k['作物']} · 灌溉 WUE`, v: fmtNum(k['灌溉WUE(kg/m³)'], 3), unit: 'kg/m³' });
     });
   }
@@ -259,7 +262,9 @@ function renderResult(jobId, res) {
     });
   }
   renderTable($('#summaryBody'), res.summary, { highlight: hl });
-  $('#summarySub').textContent = `${res.year} 年 · ${res.summary.rows.length} 个方案（绿色行为最优）`;
+  $('#summarySub').textContent = `${res.year} 年 · ${res.summary.rows.length} 个方案（绿色行为最优）`
+    + (netWater ? ' · 主统计为田间净量，毛量另列' : ' · 历史任务口径，不能与新版直接比较')
+    + (currentRice ? ` · ${res.model_notes || ''}` : ' · 历史模型版本，泡田与关键期约束口径与当前版本不同');
 
   /* --- 作物需水量（月表 + 点月份展开逐日明细） --- */
   const wrBox = $('#waterReqBody');
@@ -270,7 +275,7 @@ function renderResult(jobId, res) {
       const title = el('div', 'fig-group-title',
         `${c.name}（生育期 ${c.period} ｜ 全期 ETc ${fmtNum(c.total_etc, 1)} mm ｜ `
         + `Kc ${fmtNum(c.kc, 2)} ｜ 降雨 ${fmtNum(c.total_prcp, 1)} mm ｜ `
-        + `灌溉 ${fmtNum(c.total_irr, 1)} mm）`);
+        + `${netWater ? '净灌溉' : '灌溉'} ${fmtNum(c.total_irr, 1)} mm）`);
       wrBox.appendChild(title);
       const box = el('div');
       wrBox.appendChild(box);
@@ -301,9 +306,9 @@ function renderPhenology(box, crops) {
     const start = (c.period || '').split(' ~ ')[0];
     return `<div style="margin-bottom:7px">`
       + `<span style="color:var(--text-2);font-weight:500">${c.name}</span>　`
-      + `模拟期自 ${start} 起，${p.planting} ${p.plant_term}、${p.emergence} 出苗。`
+      + `模拟期自 ${start} 起，${p.planting} ${p.plant_term}、${p.emergence} ${p.emergence_term || '出苗'}。`
       + `此前 <span style="color:var(--text-2);font-weight:500">${p.pre_days} 天</span>无作物`
-      + `（冠层覆盖度 0、无灌溉），仅裸土蒸发：`
+      + `（冠层覆盖度0；插前净补水${fmtNum(p.pre_irrigation || 0, 1)}mm，水稻含泡田），蒸发统计：`
       + `ET0 ${fmtNum(p.pre_et0, 1)} mm / ETc ${fmtNum(p.pre_etc, 1)} mm / `
       + `<span style="color:var(--text-2);font-weight:500">Kc ${fmtNum(p.pre_kc, 2)}</span>`
       + `，该段 Kc 不代表作物系数。`

@@ -37,7 +37,7 @@ _booted = False
 _rs = None
 _wc = None
 
-VERSION = "1.0.0"
+VERSION = "1.3.0"
 
 # (内核绘图函数名, 输出文件名模板, 前端面板标题)
 FIG_SPECS = (
@@ -358,7 +358,7 @@ def water_requirement(results, crop: str, year: int,
     * ET0（参考需水量）＝ 与内核同一套 FAO-56 Penman-Monteith 实现
       （modules.atmosphere.build_weather_df），只累计生育期内的天数；
     * Kc（作物系数）＝ ETc / ET0，月值与全期值同口径相除；
-    * 降雨 / 灌溉 ＝ 正常灌溉对照（CK）方案的逐日值。
+    * 灌溉＝CK逐日总净量（含移栽日净泡田储水估算），与优化汇总、KPI同口径。
 
     CK 方案代表当地常规灌溉管理水平，是灌溉规划里需水量的标准口径。
     """
@@ -381,6 +381,7 @@ def water_requirement(results, crop: str, year: int,
     wdf = build_weather_df(wc.get_weather_csv_path(year), wc.LAT_RAD, wc.ALTITUDE_M)
 
     d = ck.daily[["模拟日期", "蒸腾蒸发量(mm)", "每日灌溉量(mm)"]].copy()
+    d["每日灌溉量(mm)"] = ck.daily["每日总净灌溉量(mm)"]
     d["日期"] = pd.to_datetime(d["模拟日期"])
     m = (d.merge(wdf[["Date", "ReferenceET", "Precipitation"]],
                  left_on="日期", right_on="Date", how="left")
@@ -428,9 +429,11 @@ def water_requirement(results, crop: str, year: int,
                 "planting": p_dt.strftime("%m-%d"),
                 "emergence": e_dt.strftime("%m-%d"),
                 "plant_term": "移栽" if crop == "rice" else "播种",
+                "emergence_term": "返青恢复" if crop == "rice" else "出苗",
                 "pre_days": int(len(pre)),
                 "pre_et0": round(float(pre["ReferenceET"].sum()), 1),
                 "pre_etc": round(float(pre["蒸腾蒸发量(mm)"].sum()), 1),
+                "pre_irrigation": round(float(pre["每日灌溉量(mm)"].sum()),1),
                 "pre_kc": _kc(pre["蒸腾蒸发量(mm)"].sum(), pre["ReferenceET"].sum())
                 if len(pre) else None,
                 "crop_days": int(len(post)),
@@ -462,12 +465,12 @@ def water_requirement(results, crop: str, year: int,
         "phenology": phenology,
         "monthly": {
             "columns": ["时段", "参考需水量ET0(mm)", "作物需水量ETc(mm)",
-                        "作物系数Kc", "降雨量(mm)", "灌水量(mm)"],
+                        "作物系数Kc", "降雨量(mm)", "净灌水量(mm)"],
             "rows": rows,
         },
         "daily": {
             "columns": ["日期", "参考需水量ET0(mm)", "作物需水量ETc(mm)",
-                        "作物系数Kc", "降雨量(mm)", "灌水量(mm)"],
+                        "作物系数Kc", "降雨量(mm)", "净灌水量(mm)"],
             "by_month": {str(k): v for k, v in sorted(daily_by_month.items())},
         },
         "total_et0": round(float(tot.et0), 1),
@@ -496,7 +499,7 @@ def _plot_water_requirement(day_df, crop_cn: str, year: int, path: Path) -> None
 
     fig, ax = plt.subplots(figsize=(9.5, 4.0), dpi=150)
     ax.bar(x, prcp, width=1.0, color="#8dc6e8", label="降雨量")
-    ax.bar(x, irr, width=1.0, bottom=prcp, color="#f4a259", label="灌水量")
+    ax.bar(x, irr, width=1.0, bottom=prcp, color="#f4a259", label="净灌水量（含净泡田储水）")
     ax.plot(x, day_df["ReferenceET"], "--", color="#8d99ae", lw=1.3,
             label="参考需水量 ET0")
     ax.plot(x, day_df["蒸腾蒸发量(mm)"], "-", color="#d62828", lw=1.5,
@@ -606,7 +609,7 @@ def _plot_growth_curve(results, crop: str, crop_cn: str, year: int,
 # --------------------------------------------------------------------------- #
 def run(crops: list[str], year: int, out_dir: Path, progress=None,
         owner: str = "") -> dict:
-    """跑 8 方案优化并出图，把所有交付物落到 out_dir。
+    """运行当前档位优化并出图，把所有交付物落到 out_dir。
 
     `owner` 决定内核读哪套气象数据：运行前把 `wc.DATA_DIR` 切到该用户私有目录，
     这样 A 上传的气象 CSV 不会影响 B 的模拟结果。
@@ -681,7 +684,7 @@ def run(crops: list[str], year: int, out_dir: Path, progress=None,
         optimal.to_csv(out_dir / f"optimal_irrigation_{year}.csv",
                        index=False, encoding="utf-8-sig")
         optimal_files.append(f"optimal_irrigation_{year}.csv")
-        log(f"\n★ {year} 年经济最优灌溉方案（产量达 95% 最大值）：")
+        log(f"\n★ {year} 年95%峰值节水候选灌溉方案（产量达 95% 最大值）：")
         log(optimal.to_string(index=False))
 
     # ---- 生长过程曲线（冠层覆盖度 / 干物质量，正常灌溉对照 + 各档叠加）----
@@ -771,7 +774,14 @@ def run(crops: list[str], year: int, out_dir: Path, progress=None,
         except Exception as e:                           # noqa: BLE001
             log(f"  ⚠ 多作物对比图失败: {type(e).__name__}: {e}")
 
-    deliv = [f"irrigation_optimization_{year}.csv"] + optimal_files \
+    prep_files=[]
+    for result in year_results:
+        if result.crop=="rice" and result.puddling_daily is not None:
+            prep_name=f"puddling_balance_{year}.csv"
+            result.puddling_daily.to_csv(out_dir/prep_name,index=False,encoding="utf-8-sig")
+            prep_files.append(prep_name)
+            break
+    deliv = [f"irrigation_optimization_{year}.csv"] + optimal_files + prep_files \
         + ([water_req["csv"]] if water_req else []) \
         + ([water_req["daily_csv"]] if water_req and water_req.get("daily_csv") else []) \
         + daily_files + excel_files
@@ -793,6 +803,10 @@ def run(crops: list[str], year: int, out_dir: Path, progress=None,
 
     return {
         "type": "spac",
+        "model_revision": "2026-10-22-rice-v4",
+        "irrigation_basis": "net_puddling_balance_v4",
+        "yield_basis": {"rice": "14.5%含水率稻谷（来源表未注明，暂定）", "corn": "干籽粒"},
+        "model_notes": "净灌水含移栽前5天泡田水量平衡，泡田前含水率由当年春季气象推进；实际储水增量、蒸发、渗漏和降雨分别列出，不能再加150.3mm的FC参考值。L1/L2为缺水试验，不参与水稻推荐；候选须满足返青、孕穗开花保水且达95%峰值。产量暂按14.5%含水率折算。4月1日初墒FC、泡田历时和渗漏仍为假设，参考定额不是年度观测。",
         "year": year,
         "crops": crops,
         "crop_names": [rs.CROP_CN[c] for c in crops],

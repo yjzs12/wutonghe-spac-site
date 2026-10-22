@@ -269,7 +269,11 @@ def _build_dryland_normal_schedule(crop: str, sim_year: int) -> pd.DataFrame:
     """
     c = crop.lower()
     if c in ("corn", "maize", "玉米"):
-        # 玉米正常灌溉: 4次灌水, 合计200mm
+        # 玉米正常灌溉: 4 次灌水, 毛量合计 160 mm → 田间净量 144 mm
+        # ★ 2026-10-22 改：原 200 mm 毛（净 180）比灌溉定额高 25–60%。
+        #   现按 75% 水文年通用值 96 m³/亩 = 144 mm（净）设定，
+        #   毛量 = 144 / AppEff(90%) = 160 mm，按原比例缩放（×0.8）。
+        #   依据 data/产量 生育期.xlsx：玉米 50% 75 m³/亩 = 112.5 mm、75% 96 = 144 mm。
         # 关键期(拔节孕穗/抽雄吐丝/灌浆)3次, 苗期1次
         dates = [
             f"{sim_year}/05/15",   # 苗期补水
@@ -277,7 +281,7 @@ def _build_dryland_normal_schedule(crop: str, sim_year: int) -> pd.DataFrame:
             f"{sim_year}/07/20",   # 抽雄吐丝(关键期)
             f"{sim_year}/08/05",   # 灌浆初(关键期)
         ]
-        depths = [40, 50, 60, 50]   # 合计 200 mm
+        depths = [32, 40, 48, 40]   # 毛量合计 160 mm（净 144 mm）
     else:
         raise ValueError(f"未知旱作作物: {crop}")
     return pd.DataFrame({
@@ -430,7 +434,9 @@ def build_field_management(crop: str) -> FieldMngt:
         # bund_water = 插秧时的田面水层(默认 30mm, 浅水插秧 1-3cm)。
         #   内核在移栽日 `reset_initial_conditions` 中写入
         #   `surface_storage = min(bund_water, z_bund)`，因此该值就是"泡田后插秧"
-        #   的初始水层；对应的 228.7mm 泡田定额在 initial_condition 里计量。
+        #   的初始水层；对应的 150.3mm 泡田定额（0–60cm 饱和 + 水层）在
+        #   initial_condition 里计量。2026-10-22 起心土层（60–100cm）不再计入
+        #   泡田台账（其重力水 8d 内排空，已计入生育期渗漏）。
         #   历史: 20mm 时移栽日田面过浅, 且剖面取 FC, 相当于"未泡田直接插秧"。
         from modules.initial_condition import PADDY_INIT_WATER_LAYER
         return FieldMngt(bunds=True, z_bund=0.20,
