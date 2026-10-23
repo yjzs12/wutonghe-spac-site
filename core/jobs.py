@@ -131,7 +131,8 @@ class Job:
     @classmethod
     def from_json(cls, path: Path) -> "Job | None":
         try:
-            d = json.loads(path.read_text(encoding="utf-8"))
+            # Older result files may contain NaN for undefined zero-irrigation WUE.
+            d = json.loads(path.read_text(encoding="utf-8"), parse_constant=lambda _: None)
         except (OSError, json.JSONDecodeError):
             return None
         job = cls(d.get("kind", "?"), d.get("title", "?"), path.parent,

@@ -37,7 +37,7 @@ _booted = False
 _rs = None
 _wc = None
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 
 # (内核绘图函数名, 输出文件名模板, 前端面板标题)
 FIG_SPECS = (
@@ -825,7 +825,7 @@ def run(crops: list[str], year: int, out_dir: Path, progress=None,
                 "产量(t/ha)": row.get("产量(t/ha)"),
                 "最大产量(t/ha)": row.get("最大产量(t/ha)"),
                 "产量达最大百分比(%)": row.get("产量达最大百分比(%)"),
-                "灌溉WUE(kg/m³)": row.get("灌溉WUE(kg/m³)"),
+                "灌溉WUE(kg/m³)": None if pd.isna(row.get("灌溉WUE(kg/m³)")) else float(row["灌溉WUE(kg/m³)"]),
                 "最高产方案":peak["灌溉方案"],
                 "保产比例(%)":yield_target*100,
                 "较峰值减产(%)":row["较峰值减产(%)"],
