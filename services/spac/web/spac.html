@@ -16,6 +16,7 @@
 .soil-layer { border-top:1px solid var(--border-strong); margin:12px 0; padding-top:10px; font-size:12px; }
 .soil-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 10px; margin-top:8px; }
 .soil-grid input { min-width:0; }
+.calendar-stages { font-size:13px; color:var(--text-2); line-height:1.8; margin:8px 0; }
 </style>
 </head>
 <body>
@@ -34,13 +35,12 @@
 
   <h1 class="page-title">基于 SPAC 的典型作物生长模型</h1>
   <p class="page-desc">
-    土壤-作物-大气连续体耦合模拟 ｜ FAO-56参考蒸散与作物水分生产力计算 ｜ 水稻6方案；玉米墒情控制6档 + 对照CK
-    ｜ 玉米直接采用模型最优档位；水稻四个新方案待提供
+    输入气象与种植参数，模拟作物产量和用水。
   </p>
 
   <div class="grid-side">
 
-    <!-- ==================== 左：输入与日志 ==================== -->
+    <!-- ==================== 左：输入 ==================== -->
     <div class="col">
 
       <div class="card">
@@ -54,7 +54,6 @@
           <div class="field">
             <label>已有气象数据的年份</label>
             <div class="chips" id="yearChips"><span class="muted">加载中…</span></div>
-            <div class="hint">点击年份芯片可填入下方「模拟年份」。</div>
           </div>
 
           <div class="field">
@@ -64,9 +63,7 @@
               <button class="btn btn-primary" id="importWeather">导入</button>
             </div>
             <div class="hint">
-              7 列：<code>日期</code> <code>最低气温</code> <code>最高气温</code> <code>降雨量</code>
-              <code>风速</code> <code>相对湿度</code> <code>太阳辐射</code>，中英文列名均可，Excel 另存为 CSV 即可。
-              <a id="tplLink" href="__BASE__/api/weather_template">下载模板</a>
+              按模板填写逐日气象数据。<a id="tplLink" href="__BASE__/api/weather_template">下载模板</a>
             </div>
           </div>
 
@@ -80,7 +77,7 @@
           <div class="field">
             <label>模拟年份</label>
             <select id="yearSelect"><option value="">（无数据，请先导入气象数据）</option></select>
-            <div class="hint">模拟期 <code id="periodHint">04-01 ~ 10-15</code>。水稻现有方案仅供对比，待四个新方案替换后确定最优。水稻产量暂按14.5%含水率折算，下载表保留干重。</div>
+            <div class="hint">模拟期 <code id="periodHint">04-01 ~ 10-15</code></div>
           </div>
 
           <div class="field">
@@ -90,11 +87,9 @@
               <label><input type="radio" name="crop" value="corn"><span>玉米</span></label>
               <label><input type="radio" name="crop" value="both" checked><span>两种都运行</span></label>
             </div>
-            <div class="hint">水稻 6 个方案；玉米为对照 CK + 墒情控制六档：100/75/50/25 四组等值阈值、雨养、动态最优。玉米需搜索多个阈值组合，运行时间随气象和设备变化。运行期间请勿关闭页面。</div>
           </div>
 
           <div id="agronomySettings" aria-live="polite"><div class="hint">正在加载种植日期与土壤预设…</div></div>
-          <div class="hint">播种/移栽、收获日期及土壤参数用于本次模拟。修改种植日期会同步顺延收获日期，也可单独调整收获日期；中间生育期按参考表格的相对时间比例自动分配，并同步模型生育历时与分期灌溉。内置土壤为通用预设，本地土壤为格网估计与等效参数，均可展开修改。</div>
           <div class="actions">
             <button class="btn btn-primary btn-block" id="runBtn">开始模拟</button>
           </div>
@@ -105,96 +100,11 @@
       </div>
 
       <div class="card">
-        <div class="card-head">
-          <h2>运行日志</h2>
-          <div class="right">
-            <a class="btn btn-sm" id="downloadLog" href="#" download>下载</a>
-          </div>
+        <div class="card-head"><h2>输入输出</h2></div>
+        <div class="card-body">
+          <p>输入：气象 CSV、模拟年份、作物、种植与收获日期、土壤参数。</p>
+          <p>输出：产量、灌水量、需水量、过程图及结果文件。</p>
         </div>
-        <div class="card-body tight">
-          <div class="log" id="log"></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head"><h2>使用说明</h2></div>
-        <details class="help" open>
-          <summary>气象数据格式与模拟新年份步骤</summary>
-          <div class="body">第一步  准备该年逐日气象数据，时间范围 04-01 ~ 10-15（约 198 天，每天一行）：
-
-  列名       单位        示例         说明
-  日期       -          2026-04-01   （2026/4/1 也可）
-  最低气温   ℃          5.2
-  最高气温   ℃          18.6
-  降雨量     mm         0.0          当日总量
-  风速       m/s        3.0
-  相对湿度   %          65           0-100
-  太阳辐射   MJ/m²/日   18.9         全天总辐射
-
-第二步  用 Excel 整理好（第 1 行是列名，之后每行一天），
-        「另存为 → CSV(逗号分隔)(*.csv)」，在上方「导入逐日气象 CSV」上传。
-
-第三步  选中该年份，点「开始模拟」。
-
-说明：导入后按数据年份自动落盘；若同年已存在 ERA5 下载数据（优先级更高），
-     页面会先询问是否替换。</div>
-        </details>
-        <details class="help">
-          <summary>输出结果说明</summary>
-          <div class="body">irrigation_optimization_年份.csv   方案汇总表（灌水量 / 标准水分产量与干重 / ET / WUE）
-optimal_irrigation_年份.csv        玉米最佳灌溉方式（直接采用模型最优档位）
-water_requirement_年份.csv         作物需水量逐月统计（ET0 / ETc / Kc / 降雨 / 灌溉）
-corn_smt_search_年份.csv            玉米四阶段阈值搜索记录（产量 / 净灌水 / Pareto前沿）
-corn_smt_optimization_年份.json     玉米最优阈值与筛选依据
-daily_作物_方案_年份.csv           各方案逐日结果
-original_作物_方案_年份.xlsx       内核原始输出（4 个工作表）
-figures/yield_irr_curve_*.png      产量-灌水量响应曲线
-figures/water_dynamics_*.png       水分动态（正常灌溉对照）
-figures/canopy_cover_*.png         冠层覆盖度过程曲线（对照 + 各灌溉档位）
-figures/dry_matter_*.png           干物质量累积曲线（对照 + 各灌溉档位）
-figures/irrigation_schedule_*.png  灌溉制度时序对比
-figures/water_requirement_*.png    作物需水过程（正常灌溉对照）
-figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都跑时）</div>
-        </details>
-        <details class="help">
-          <summary>模拟期、移栽日期与 Kc 口径</summary>
-          <div class="body">模拟期自 04-01 起、10-15 止，作物进入田间的日期由上方自选。下列为默认日期示例：
-
-  作物   田间作业        出苗        移栽/播种前空天数
-  水稻   05-15 移栽     05-17      44 天
-  玉米   04-25 播种     04-30      24 天
-
-这段"有模拟、无作物"的区间里，冠层覆盖度、田间水层、灌溉量都是 0，
-算出的 Kc 只是裸土蒸发系数，不代表作物，引用时请剔除该段。
-
-「作物需水量」表按两种口径列出：
-  全生育期合计   自 04-01 起全部天数，与上方月度表逐行相加一致
-  仅作物期       自移栽 / 播种日起累计，可与作物系数手册值对照
-
-关于 10-15 这个末日：收获日期默认 09-25，可在上方修改，最晚为模拟年份的 10-15。
-收获或作物成熟后模型停止记录，末条逐日记录可能早于所选收获日期。
-修改种植或收获日期后，中间生育期依据参考表格的旬级时间比例分配；模型生育历时、分期灌溉、作物期统计与图件标记同步更新。表格未提供精确日期，上、中、下旬分别用5、15、25日为参考。
-土壤按所选预设及修改后的分层参数计算，所选起止日期及分配后的生育期随运行设置下载。
-所以 10-15 之后的日期不参与任何计算，模拟结果早于 10-15 结束属正常，
-不影响任何指标；10-15 仅作为模拟期的安全上界保留。</div>
-        </details>
-        <details class="help">
-          <summary>预览与下载的限制</summary>
-          <div class="body">表格类产物（xlsx / csv / tsv）的「预览」不是 Excel 在线版，而是服务端
-读表后渲染的一页静态 HTML：
-
-  行数     仅前 300 行，超出部分显示"≥300 行"
-  列数     仅前 60 列
-  文件大小 超过 60 MB 不提供预览，只保留下载
-  xlsx     多工作表会全部列出，每表各自截断到 300 行
-  .xls     老格式不支持（缺少解析引擎），请下载后用 Excel 打开
-
-预览页是只读快照：不能排序、筛选、改单元格、算公式，也不含图表与单元格格式
-（合并单元格、颜色、条件格式都会丢失）。需要计算或二次分析请下载原文件。
-
-图片 / PDF / TXT 由浏览器原生打开，不受上述限制；
-逐日结果（daily_*.csv，通常 177 行）可完整预览。</div>
-        </details>
       </div>
 
     </div>
@@ -209,13 +119,13 @@ figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都�
         <div class="card" id="figureCard">
           <div class="card-head">
             <h2>结果图件</h2>
-            <span class="sub" id="figureSub">运行后在此铺开全部图表，一屏可对比</span>
+            <span class="sub" id="figureSub">点击图件可放大或下载</span>
             <div class="right">
               <button class="btn btn-sm" id="toggleWide" disabled>单列铺宽</button>
             </div>
           </div>
           <div class="card-body tight" id="figureBody">
-            <div class="empty-state">还没有结果 —— 左侧选择年份与作物后点「开始模拟」，或先点「一键跑通内置样例」。</div>
+            <div class="empty-state">选择参数后点击「开始模拟」。</div>
           </div>
         </div>
 
@@ -223,7 +133,7 @@ figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都�
           <div class="card" id="resultCard">
             <div class="card-head">
               <h2 id="optimalTitle">最佳灌溉方式</h2>
-              <span class="sub" id="optimalCriterion">直接采用 AquaCrop 最优档位</span>
+              <span class="sub" id="optimalCriterion">玉米最优方案</span>
             </div>
             <div class="card-body" id="optimalBody"><div class="empty-state">暂无</div></div>
           </div>
@@ -239,7 +149,7 @@ figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都�
 
         <div class="card" id="evidenceCard">
           <div class="card-head"><h2>雨养与补灌判定依据</h2></div>
-          <div class="card-body" id="evidenceBody"><div class="empty-state">运行玉米后显示雨养产量损失、关键期降雨与蒸腾受限指标。</div></div>
+          <div class="card-body" id="evidenceBody"><div class="empty-state">运行玉米后显示对比结果。</div></div>
         </div>
         <div class="card" id="waterReqCard">
           <div class="card-head">
@@ -247,7 +157,6 @@ figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都�
             <span class="sub" id="waterReqSub">逐月 ET0 / ETc / Kc / 降雨 / 灌溉</span>
           </div>
           <div class="card-body" id="waterReqBody"><div class="empty-state">暂无</div></div>
-          <div id="waterReqNote" style="padding:0 16px 14px;font-size:12px;color:var(--text-3);line-height:1.7"></div>
         </div>
 
         <div class="card" id="fileCard">
@@ -256,15 +165,7 @@ figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都�
             <span class="sub">点击文件名下载</span>
           </div>
           <div class="card-body" id="fileBody"><div class="empty-state">暂无</div></div>
-          <div style="padding:0 16px 14px;font-size:12px;color:var(--text-3);line-height:1.7">
-            <span style="color:var(--text-2);font-weight:500">预览限制</span>　
-            表格类文件（xlsx / csv / tsv）的「预览」由服务端转换成静态 HTML 表格：
-            只显示<b style="font-weight:500;color:var(--text-2)">前 300 行、前 60 列</b>，
-            单文件超过 <b style="font-weight:500;color:var(--text-2)">60 MB</b> 不再提供预览；
-            预览页只读，不支持排序、筛选、公式计算与编辑，也无法看到被截断的后续行。
-            <b style="font-weight:500;color:var(--text-2)">.xls 老格式不支持预览</b>，请直接下载。
-            图片 / PDF / TXT 由浏览器原生打开，不受上述限制。
-          </div>
+          <div class="hint" style="padding:0 16px 14px">预览仅显示前300行、60列；完整数据请下载。</div>
         </div>
 
       </div>

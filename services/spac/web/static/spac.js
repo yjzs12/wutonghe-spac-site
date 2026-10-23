@@ -11,7 +11,6 @@ if (BASE === '') {
   document.title = '基于 SPAC 的典型作物生长模型';
 }
 
-const logView = createLogView($('#log'));
 const taskPill = $('#taskPill');
 const elapsedEl = $('#elapsed');
 
@@ -21,7 +20,21 @@ let running = false;
 let wideMode = false;
 let lastResult = null;
 let agronomyConfig = null;
-let pendingDisplayLog = '';
+
+function displayText(value) {
+  return String(value == null ? '' : value).replace(/aqua\s*crop/gi, '模型');
+}
+
+function inputError(message) {
+  const text = String(message || '请检查输入后重试');
+  return /aqua\s*crop|traceback|site-packages|\.py\b|error:/i.test(text)
+    ? '请检查日期、气象数据和土壤参数后重试' : text;
+}
+
+function soilLabel(settings) {
+  const preset = agronomyConfig && agronomyConfig.soils[settings.soil_type];
+  return displayText(preset ? preset.label : '所选土壤').replace('（当前默认）', '');
+}
 
 function preparationFreeNotes(text) {
   return String(text || '').split(/(?<=[。！？])/).filter(sentence => !/泡田|puddl/i.test(sentence)).join('');
@@ -29,23 +42,17 @@ function preparationFreeNotes(text) {
 
 function tableForDisplay(table) {
   if (!table) return table;
-  const indices = table.columns.map((_, i) => i).filter(i => !/泡田|puddl/i.test(table.columns[i]));
+  const indices = table.columns.map((_, i) => i).filter(i =>
+    !/泡田|puddl/i.test(table.columns[i]) && !['结论', '限制', '关键期定义', '取水口径'].includes(table.columns[i]));
   return {
-    columns: indices.map(i => table.columns[i]),
+    columns: indices.map(i => displayText(table.columns[i])),
     rows: table.rows.map(row => indices.map(i => {
       const value = row[i];
-      if (typeof value !== 'string' || !/泡田|puddl/i.test(value)) return value;
-      return table.columns[i] === '灌水口径' ? '田间净量' : preparationFreeNotes(value);
+      if (typeof value !== 'string') return value;
+      if (!/泡田|puddl/i.test(value)) return displayText(value);
+      return table.columns[i] === '灌水口径' ? '田间净量' : displayText(preparationFreeNotes(value));
     })),
   };
-}
-
-function appendDisplayLog(text, flush = false) {
-  pendingDisplayLog += text;
-  const lines = pendingDisplayLog.split('\n');
-  pendingDisplayLog = flush ? '' : lines.pop();
-  const visible = lines.filter(line => !/泡田|puddl/i.test(line));
-  if (visible.length) logView.append(visible.join('\n') + (flush ? '' : '\n'));
 }
 
 async function loadAgronomySettings() {
@@ -61,29 +68,28 @@ async function loadAgronomySettings() {
     section.innerHTML = `<legend>${name} · 种植与土壤</legend>
       <div class="field"><label for="${crop}PlantingDate">${name}${crop === 'rice' ? '移栽' : '播种'}日期</label>
         <input id="${crop}PlantingDate" type="date" required>
-        <div class="hint">修改后收获日期同步顺延；也可单独调整下方收获日期。</div></div>
+        <div class="hint">修改后收获日期同步顺延。</div></div>
       <div class="field"><label for="${crop}HarvestDate">${name}收获日期</label>
         <input id="${crop}HarvestDate" type="date" required>
-        <div class="hint">各生育期按参考表格的时间比例在种植至收获之间自动分配。</div></div>
-      <details class="calendar-preview" open><summary>自动分配的生育期日期</summary>
-        <div class="hint">依据《产量 生育期.xlsx》，上、中、下旬分别取5、15、25日为参考。以下为分配日期。</div>
-        <div id="${crop}CalendarStages" class="hint" aria-live="polite"></div>
+        <div class="hint">可单独修改，生育期自动调整。</div></div>
+      <details class="calendar-preview"><summary>查看生育期日期</summary>
+        <div id="${crop}CalendarStages" class="calendar-stages" aria-live="polite"></div>
       </details>
       <div class="field"><label for="${crop}SoilType">土壤类型</label>
-        <select id="${crop}SoilType"></select><div class="hint" id="${crop}SoilSource"></div></div>
+        <select id="${crop}SoilType"></select></div>
       <details class="soil-editor"><summary>展开并修改土壤参数</summary>
         <div class="hint">含水率单位 m³/m³，须满足 PWP &lt; FC &lt; SAT。土层厚度按0.1m递增。</div>
         <div id="${crop}SoilLayers"></div>
         <div class="field"><label for="${crop}SoilCN">径流曲线数 CN</label>
           <input id="${crop}SoilCN" type="number" min="1" max="100" step="0.1" required>
-          <div class="hint">水稻启用田埂时采用蓄满溢流机制，CN不参与该情景的径流计算。</div></div>
+        </div>
         <button class="btn btn-sm" type="button" id="${crop}SoilReset">恢复所选土壤预设</button>
       </details>`;
     box.appendChild(section);
     const select = $('#' + crop + 'SoilType');
     Object.entries(agronomyConfig.soils).forEach(([key, p]) => {
       const option = el('option'); option.value = key;
-      option.textContent = p.label;
+      option.textContent = displayText(p.label);
       select.appendChild(option);
     });
     select.value = agronomyConfig.defaults[crop].soil_type;
@@ -117,7 +123,6 @@ const soilFields = [
 
 function renderSoilEditor(crop, saved = null) {
   const cfg = saved || agronomyConfig.soils[$('#' + crop + 'SoilType').value];
-  $('#' + crop + 'SoilSource').textContent = cfg.source;
   $('#' + crop + 'SoilCN').value = cfg.cn;
   const box = $('#' + crop + 'SoilLayers');
   box.innerHTML = '';
@@ -165,7 +170,7 @@ function updateCropCalendar(crop) {
   ref.stages.filter(stage => stage.reference_date >= ref.planting_date).forEach(stage => {
     const fraction = (calendarDay(`${year}-${stage.reference_date}`) - origin) / duration;
     const iso = calendarISO(calendarDay(planted.value) + Math.round(fraction * days));
-    box.appendChild(el('div', '', `${stage.name}：${iso}（参考：${stage.period}）`));
+    box.appendChild(el('div', '', `${stage.name}：${iso}`));
   });
 }
 
@@ -349,8 +354,6 @@ async function startRun(year, crop) {
   $('#runBtn').disabled = true;
   $('#demoBtn').disabled = true;
   $('#runBtn').textContent = '模拟中…';
-  logView.reset();
-  pendingDisplayLog = '';
   clearResults();
   setPill('run', '运行中');
   elapsedEl.textContent = '';
@@ -359,12 +362,12 @@ async function startRun(year, crop) {
     const r = await postJSON('/api/run', { year: Number(year), crop, ...options });
     if (!r.ok) throw new Error(r.error || '启动失败');
     currentJobId = r.job_id;
-    $('#downloadLog').href = BASE + `/api/job/${r.job_id}/log.txt`;
     history.replaceState(null, '', location.pathname + `?job=${r.job_id}`);
     watch(r.job_id);
   } catch (e) {
-    logView.append('启动失败：' + e.message + '\n');
-    toast('启动失败：' + e.message, 'err');
+    setPill('err', '启动失败');
+    $('#figureBody').textContent = '启动失败：' + inputError(e.message);
+    toast('启动失败：' + inputError(e.message), 'err');
     finishUI();
   }
 }
@@ -372,27 +375,24 @@ async function startRun(year, crop) {
 function watch(jobId) {
   if (watcher) watcher.stop();
   watcher = watchJob(jobId, {
-    onLog: t => appendDisplayLog(t),
     onState: s => {
       if (s.status === 'running') {
-        setPill('run', s.progress || '运行中');
+        setPill('run', '运行中');
         elapsedEl.textContent = '已用时 ' + fmtDuration(s.elapsed);
       } else if (s.status === 'queued') {
         setPill('warn', '排队中');
       }
     },
     onFinish: s => {
-      appendDisplayLog('', true);
       if (s.status === 'done' && s.result) {
-        logView.append(`\n[完成] ${s.result.n_scenarios} 个方案，${s.result.figures.length} 张图件。\n`);
         setPill('ok', '已完成');
         elapsedEl.textContent = '耗时 ' + fmtDuration(s.elapsed);
         toast('模拟完成', 'ok');
         renderResult(jobId, s.result);
       } else {
-        logView.append('\n[失败] ' + (s.error || '未知错误') + '\n');
         setPill('err', '失败');
-        toast('模拟失败，详见日志', 'err');
+        $('#figureBody').textContent = '模拟失败，请检查输入后重试。';
+        toast('模拟失败，请检查输入后重试', 'err');
       }
       finishUI();
     },
@@ -417,7 +417,6 @@ function clearResults() {
   $('#optimalBody').innerHTML = '<div class="empty-state">暂无</div>';
   $('#summaryBody').innerHTML = '<div class="empty-state">暂无</div>';
   $('#waterReqBody').innerHTML = '<div class="empty-state">暂无</div>';
-  if ($('#waterReqNote')) $('#waterReqNote').innerHTML = '';
   $('#fileBody').innerHTML = '<div class="empty-state">暂无</div>';
   $('#toggleWide').disabled = true;
 }
@@ -448,7 +447,7 @@ function renderResult(jobId, res) {
   }
   const agronomyResult = $('#agronomyResult');
   agronomyResult.textContent = Object.entries(res.agronomy_settings || {}).map(([crop, settings]) =>
-    `${crop === 'rice' ? '水稻移栽' : '玉米播种'}：${settings.planting_date_iso}；收获：${settings.harvest_date}；${settings.soil.name}`).join(' ｜ ');
+    `${crop === 'rice' ? '水稻移栽' : '玉米播种'}：${settings.planting_date_iso}；收获：${settings.harvest_date}；${soilLabel(settings)}`).join(' ｜ ');
   agronomyResult.classList.toggle('hidden', !res.agronomy_settings);
 
   /* --- KPI 条：把最优灌溉制度摊成指标卡 --- */
@@ -456,7 +455,6 @@ function renderResult(jobId, res) {
   if (moistureModel && res.corn_optimization) {
     const opt = res.corn_optimization;
     kpis.push({ k: '玉米 · 墒情控制最优阈值', v: `（${opt.selected_smt.join('，')}）`, unit: '' });
-    kpis.push({ k: '玉米 · AquaCrop阈值模拟', v: opt.evaluations, unit: '组' });
   }
   if (res.kpi && res.kpi.length) {
     res.kpi.forEach(k => {
@@ -485,8 +483,7 @@ function renderResult(jobId, res) {
 
   /* --- 图件：一页铺开所有窗口 --- */
   renderFigures($('#figureBody'), jobId, res.figures, { groupBy: true });
-  $('#figureSub').textContent = `${res.year} 年 · ${res.crop_names.join('+')} · `
-    + `${(res.figures || []).length} 张图（点图全屏，右上角下载原图）`;
+  $('#figureSub').textContent = `${res.year} 年 · ${(res.figures || []).length} 张图`;
   $('#toggleWide').disabled = !(res.figures && res.figures.length);
   applyWide();
 
@@ -496,7 +493,7 @@ function renderResult(jobId, res) {
     const view = { columns: indices.map(i => !directModel && res.optimal.columns[i] === '最优方案' ? '历史候选方案' : res.optimal.columns[i]), rows: res.optimal.rows.map(row => indices.map(i => row[i])) };
     renderTable($('#optimalBody'), tableForDisplay(view));
   } else {
-    $('#optimalBody').innerHTML = `<div class="empty-state">${directModel ? '水稻待提供四个新方案后确定最优；现有结果仅供对比。' : '无优化方案结果'}</div>`;
+    $('#optimalBody').innerHTML = `<div class="empty-state">${directModel ? '水稻仅展示方案对比。' : '无优化方案结果'}</div>`;
   }
 
   /* --- 汇总表（高亮最优方案行） --- */
@@ -513,22 +510,14 @@ function renderResult(jobId, res) {
   }
   renderTable($('#summaryBody'), tableForDisplay(res.summary), { highlight: hl });
   $('#optimalTitle').textContent = directModel ? '最佳灌溉方式' : '历史候选结果';
-  $('#optimalCriterion').textContent = directModel ? '玉米直接采用模型最优档位：产量最高，同等产量下净灌水最少；水稻待四个新方案' : '历史结果按当时的保产比例筛选，请重新运行以使用模型最优档位';
-  $('#summarySub').textContent = `${res.year} 年 · ${res.summary.rows.length} 个方案（绿色行为${directModel ? "玉米模型最优档位" : "历史候选"}）`
-    + (netWater ? ' · 主统计为田间净量，毛量另列' : ' · 历史任务口径，不能与新版直接比较')
-    + (currentRice ? ` · ${preparationFreeNotes(res.model_notes)}` : ' · 历史模型版本，请使用当前版本重新运行');
+  $('#optimalCriterion').textContent = directModel ? '玉米最优方案' : '历史结果';
+  $('#summarySub').textContent = `${res.year} 年 · ${res.summary.rows.length} 个方案 · 绿色行为${directModel ? '玉米最优方案' : '历史候选'}`;
   const evidenceBox = $('#evidenceBody');
   evidenceBox.innerHTML = '';
   if (currentModel && res.evidence && res.evidence.rows.length) {
-    const ci = res.evidence.columns.indexOf('结论');
-    res.evidence.rows.forEach(row => evidenceBox.appendChild(el('div', 'notice', row[ci])));
-    const table = el('div'); evidenceBox.appendChild(table); renderTable(table, res.evidence);
+    const table = el('div'); evidenceBox.appendChild(table); renderTable(table, tableForDisplay(res.evidence));
   } else {
-    evidenceBox.appendChild(el('div', 'empty-state', currentModel ? '本次未运行玉米。' : '历史结果缺少真正零灌溉对照与判定依据，请用新版重算。'));
-  }
-  if (currentModel && res.irrigation_settings) {
-    const text = Object.values(res.irrigation_settings).map(s => `${s.label}：总系数${s.coefficient == null ? '未指定' : s.coefficient}，田间施加效率${s.application_efficiency_pct}%`).join('；');
-    evidenceBox.appendChild(el('div', 'hint', text + '。水源取水由净量÷总系数估算，未重复折减田间效率。'));
+    evidenceBox.appendChild(el('div', 'empty-state', currentModel ? '本次未运行玉米。' : '请重新模拟以生成本表。'));
   }
 
   /* --- 作物需水量（月表 + 点月份展开逐日明细） --- */
@@ -547,37 +536,13 @@ function renderResult(jobId, res) {
       renderWaterReq(box, c);
     });
     $('#waterReqSub').textContent =
-      `${wr.year} 年 · ${wr.basis} · 月表默认折叠，点月份行展开该月逐日`;
-    renderPhenology($('#waterReqNote'), wr.crops);
+      `${wr.year} 年 · 点击月份查看逐日数据`;
   } else {
     wrBox.innerHTML = '<div class="empty-state">暂无</div>';
-    if ($('#waterReqNote')) $('#waterReqNote').innerHTML = '';
   }
 
   /* --- 文件 --- */
   renderFiles($('#fileBody'), jobId, (res.files || []).filter(file => !/泡田|puddl/i.test(`${file.rel || ''} ${file.name || ''}`)));
-}
-
-/* ---------------- 物候口径说明：移栽前的 Kc 不是作物系数 ---------------- */
-/* 模拟期固定自 04-01 起，但水稻 05-15 才移栽、玉米 04-25 才播种。
-   这段 CC=0、不灌溉，ETc 只剩裸土蒸发，Kc 会掉到 0.1 以下 —— 必须就地讲明，
-   否则「全期 Kc」会被当成作物系数引用。 */
-function renderPhenology(box, crops) {
-  if (!box) return;
-  const items = (crops || []).filter(c => c.phenology);
-  if (!items.length) { box.innerHTML = ''; return; }
-  const line = c => {
-    const p = c.phenology;
-    return `<div style="margin-bottom:7px">`
-      + `<span style="color:var(--text-2);font-weight:500">${c.name}</span>　`
-      + `${p.planting} ${p.plant_term}、${p.emergence} ${p.emergence_term || '出苗'}。`
-      + `仅统计${p.plant_term}后 ${p.crop_days} 天：`
-      + `ET0 ${fmtNum(p.crop_et0, 1)} mm / ETc ${fmtNum(p.crop_etc, 1)} mm / `
-      + `<span style="color:var(--text-2);font-weight:500">Kc ${fmtNum(p.crop_kc, 2)}</span>。</div>`;
-  };
-  box.innerHTML =
-    `<div style="margin-bottom:4px;color:var(--text-2);font-weight:500">口径说明</div>`
-    + items.map(line).join('');
 }
 
 /* ---------------- 作物需水量：月表 + 可展开逐日 ---------------- */
@@ -690,7 +655,6 @@ function applyWide() {
 /* ---------------- 恢复历史任务 ---------------- */
 async function restoreJob(jobId) {
   currentJobId = jobId;
-  $('#downloadLog').href = BASE + `/api/job/${jobId}/log.txt`;
   let s;
   try {
     s = await api(`/api/job/${jobId}`);
@@ -699,20 +663,17 @@ async function restoreJob(jobId) {
        原来这里会抛未捕获异常，页面停在"运行中…"，看着像卡死。 */
     clearResults();
     $('#figureBody').innerHTML =
-      '<div class="empty-state">这次运行的结果已不存在（实例休眠重启或重新部署会清空），请重新点「开始模拟」。</div>';
+      '<div class="empty-state">结果已失效，请重新模拟。</div>';
     setPill('err', '结果已失效');
-    toast('这次运行的结果已不存在（实例休眠重启或重新部署会清空），请重新跑一次模拟。', 'err');
+    toast('结果已失效，请重新模拟', 'err');
     return;
   }
-  logView.reset();
-  pendingDisplayLog = '';
-  if (s.log) appendDisplayLog(s.log, !['running', 'queued'].includes(s.status));
   if (s.status === 'running' || s.status === 'queued') {
     running = true;
     syncCropSections();
     $('#runBtn').disabled = true;
     $('#runBtn').textContent = '模拟中…';
-    setPill('run', s.progress || '运行中');
+    setPill(s.status === 'queued' ? 'warn' : 'run', s.status === 'queued' ? '排队中' : '运行中');
     watch(jobId);
   } else if (s.status === 'done' && s.result) {
     setPill('ok', '已完成');
@@ -720,6 +681,7 @@ async function restoreJob(jobId) {
     renderResult(jobId, s.result);
   } else if (s.status === 'failed') {
     setPill('err', '失败');
+    $('#figureBody').textContent = '模拟失败，请检查输入后重试。';
   }
 }
 
