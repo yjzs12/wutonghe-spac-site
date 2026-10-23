@@ -20,7 +20,7 @@ let watcher = null;
 let running = false;
 let wideMode = false;
 let lastResult = null;
-let utilizationProfiles = null;
+let agronomyConfig = null;
 let pendingDisplayLog = '';
 
 function preparationFreeNotes(text) {
@@ -48,44 +48,129 @@ function appendDisplayLog(text, flush = false) {
   if (visible.length) logView.append(visible.join('\n') + (flush ? '' : '\n'));
 }
 
-async function loadUtilizationProfiles() {
+async function loadAgronomySettings() {
   const data = await api('/api/capabilities');
-  if (!data.utilization_profiles) throw new Error('服务未提供新版利用系数配置，请更新后端');
-  utilizationProfiles = data.utilization_profiles;
+  if (!data.agronomy) throw new Error('服务未提供种植日期与土壤配置，请更新后端');
+  agronomyConfig = data.agronomy;
+  const box = $('#agronomySettings');
+  box.innerHTML = '';
   ['rice', 'corn'].forEach(crop => {
-    const select = $('#' + crop + 'Profile');
-    select.innerHTML = '';
-    Object.entries(utilizationProfiles).filter(([, p]) => p.crops.includes(crop)).forEach(([key, p]) => {
+    const name = crop === 'rice' ? '水稻' : '玉米';
+    const section = el('fieldset', 'agronomy-section');
+    section.id = crop + 'Agronomy';
+    section.innerHTML = `<legend>${name} · 种植与土壤</legend>
+      <div class="field"><label for="${crop}PlantingDate">${name}${crop === 'rice' ? '移栽' : '播种'}日期</label>
+        <input id="${crop}PlantingDate" type="date" required>
+        <div class="hint">收获日期沿用 ${agronomyConfig.harvest[crop]}。</div></div>
+      <div class="field"><label for="${crop}SoilType">土壤类型</label>
+        <select id="${crop}SoilType"></select><div class="hint" id="${crop}SoilSource"></div></div>
+      <details class="soil-editor"><summary>展开并修改土壤参数</summary>
+        <div class="hint">含水率单位 m³/m³，须满足 PWP &lt; FC &lt; SAT。土层厚度按0.1m递增。</div>
+        <div id="${crop}SoilLayers"></div>
+        <div class="field"><label for="${crop}SoilCN">径流曲线数 CN</label>
+          <input id="${crop}SoilCN" type="number" min="1" max="100" step="0.1" required>
+          <div class="hint">水稻启用田埂时采用蓄满溢流机制，CN不参与该情景的径流计算。</div></div>
+        <button class="btn btn-sm" type="button" id="${crop}SoilReset">恢复所选土壤预设</button>
+      </details>`;
+    box.appendChild(section);
+    const select = $('#' + crop + 'SoilType');
+    Object.entries(agronomyConfig.soils).forEach(([key, p]) => {
       const option = el('option'); option.value = key;
-      option.textContent = p.label + (p.range ? `（${p.range[0]}—${p.range[1]}）` : '');
+      option.textContent = p.label;
       select.appendChild(option);
     });
-    select.value = crop === 'rice' ? 'rice_surface' : 'corn_canal';
-    select.disabled = false;
-    const update = () => {
-      const limits = utilizationProfiles[select.value].range;
-      const input = $('#' + crop + 'Coefficient');
-      input.disabled = !limits;
-      input.value = limits ? ((limits[0] + limits[1]) / 2).toFixed(3) : '';
-      if (limits) { input.min = limits[0]; input.max = limits[1]; }
-    };
-    select.addEventListener('change', update); update();
+    select.value = agronomyConfig.defaults[crop].soil_type;
+    select.addEventListener('change', () => renderSoilEditor(crop));
+    $('#' + crop + 'SoilReset').addEventListener('click', () => renderSoilEditor(crop));
+    renderSoilEditor(crop);
+  });
+  syncPlantingYear(true);
+  syncCropSections();
+}
+
+const soilFields = [
+  ['depth', '厚度（m）', 0.1, 3, 0.1],
+  ['SAT', '饱和含水率 SAT', 0.001, 0.999, 0.001],
+  ['FC', '田间持水量 FC', 0.001, 0.999, 0.001],
+  ['PWP', '萎蔫含水率 PWP', 0.001, 0.999, 0.001],
+  ['Ks', '饱和导水率（mm/d）', 0.001, 10000, 0.001],
+  ['penetrability', '根系穿透率（%）', 0.1, 100, 0.1],
+];
+
+function renderSoilEditor(crop, saved = null) {
+  const cfg = saved || agronomyConfig.soils[$('#' + crop + 'SoilType').value];
+  $('#' + crop + 'SoilSource').textContent = cfg.source;
+  $('#' + crop + 'SoilCN').value = cfg.cn;
+  const box = $('#' + crop + 'SoilLayers');
+  box.innerHTML = '';
+  cfg.layers.forEach((layer, i) => {
+    const group = el('div', 'soil-layer');
+    group.appendChild(el('strong', '', `第 ${i + 1} 层`));
+    const grid = el('div', 'soil-grid');
+    soilFields.forEach(([key, label, min, max, step]) => {
+      const field = el('div', 'field');
+      const id = `${crop}Soil${i}${key}`;
+      const title = el('label', '', label); title.htmlFor = id;
+      const input = document.createElement('input');
+      Object.assign(input, { id, type: 'number', min: String(min), max: String(max), step: String(step), required: true, value: layer[key] });
+      input.dataset.soilKey = key;
+      field.append(title, input); grid.appendChild(field);
+    });
+    group.appendChild(grid); box.appendChild(group);
   });
 }
 
-function irrigationRunOptions(crop) {
-  if (!utilizationProfiles) throw new Error('利用系数配置尚未加载成功，请刷新页面');
+function syncPlantingYear(reset = false) {
+  if (!agronomyConfig) return;
+  const year = $('#yearSelect').value;
+  if (!year) return;
+  ['rice', 'corn'].forEach(crop => {
+    const input = $('#' + crop + 'PlantingDate');
+    const md = !reset && input.value ? input.value.slice(5) : agronomyConfig.defaults[crop].planting_date;
+    input.value = `${year}-${md}`;
+    const start = new Date(`${year}-${agronomyConfig.sim_start}T00:00:00Z`);
+    if (crop === 'rice') start.setUTCDate(start.getUTCDate() + 6);
+    input.min = start.toISOString().slice(0, 10);
+    const end = new Date(`${year}-${agronomyConfig.harvest[crop]}T00:00:00Z`);
+    end.setUTCDate(end.getUTCDate() - 1);
+    input.max = end.toISOString().slice(0, 10);
+  });
+}
+
+function syncCropSections() {
+  const crop = ($('input[name=crop]:checked') || {}).value || 'both';
+  ['rice', 'corn'].forEach(c => {
+    const section = $('#' + c + 'Agronomy');
+    if (!section) return;
+    section.hidden = crop !== 'both' && crop !== c;
+    section.disabled = running || section.hidden;
+  });
+}
+
+function agronomyRunOptions(crop) {
+  if (!agronomyConfig) throw new Error('种植与土壤配置尚未加载成功，请刷新页面');
   const selected = crop === 'both' ? ['rice', 'corn'] : [crop];
-  const payload = { yield_target_pct: Number($('#yieldTarget').value) };
+  const payload = {};
   selected.forEach(c => {
-    const profile = $('#' + c + 'Profile').value;
-    const coefficient = $('#' + c + 'Coefficient');
-    const field = $('#' + c + 'AppEff');
-    if (!field.checkValidity() || !field.value) throw new Error('请核实田间施加效率');
-    if (utilizationProfiles[profile].range && (!coefficient.value || !coefficient.checkValidity())) throw new Error('利用系数须在来源表区间内');
-    payload[c + '_profile'] = profile;
-    payload[c + '_coefficient'] = coefficient.disabled ? null : Number(coefficient.value);
-    payload[c + '_application_efficiency_pct'] = Number(field.value);
+    const section = $('#' + c + 'Agronomy');
+    const invalid = Array.from(section.querySelectorAll('input')).find(input => !input.checkValidity());
+    if (invalid) {
+      const details = invalid.closest('details'); if (details) details.open = true;
+      invalid.reportValidity();
+      throw new Error('请核实种植日期与土壤参数');
+    }
+    const layers = Array.from(section.querySelectorAll('.soil-layer')).map(group =>
+      Object.fromEntries(Array.from(group.querySelectorAll('input')).map(input => [input.dataset.soilKey, Number(input.value)])));
+    if (layers.some(l => !(l.PWP < l.FC && l.FC < l.SAT))) throw new Error('土壤含水率须满足 PWP < FC < SAT');
+    const depth = layers.reduce((sum, layer) => sum + layer.depth, 0);
+    const minDepth = agronomyConfig.min_soil_depth[c];
+    if (depth < minDepth - 1e-8 || depth > 3 + 1e-8) throw new Error(`土壤总深度须在${minDepth}至3m之间，以覆盖根区与底边界`);
+    payload[c + '_agronomy'] = {
+      planting_date: $('#' + c + 'PlantingDate').value,
+      soil_type: $('#' + c + 'SoilType').value,
+      soil_layers: layers,
+      soil_cn: Number($('#' + c + 'SoilCN').value),
+    };
   });
   return payload;
 }
@@ -123,6 +208,7 @@ function fillYears(years, period) {
       $$('#yearChips .chip').forEach(x => x.classList.remove('on'));
       c.classList.add('on');
       sel.value = String(y);
+      syncPlantingYear();
     });
     chips.appendChild(c);
 
@@ -134,6 +220,7 @@ function fillYears(years, period) {
   const last = String(years[years.length - 1]);
   sel.value = last;
   $$('#yearChips .chip').forEach(x => x.classList.toggle('on', x.textContent === last));
+  syncPlantingYear();
 }
 
 async function loadYears() {
@@ -189,6 +276,7 @@ async function importWeather(overrideEra5 = false) {
     toast(`已导入 ${data.year} 年气象数据`, 'ok');
     await loadYears();
     $('#yearSelect').value = String(data.year);
+    syncPlantingYear();
   } catch (e) {
     box.innerHTML = `<div class="notice err">导入失败：${escapeHtml(e.message)}</div>`;
     toast('导入失败', 'err');
@@ -203,8 +291,12 @@ async function startRun(year, crop) {
   year = year || $('#yearSelect').value;
   crop = crop || (($('input[name=crop]:checked') || {}).value || 'both');
   if (!year) { toast('请先选择模拟年份', 'err'); return; }
+  let options;
+  try { options = agronomyRunOptions(crop); }
+  catch (e) { toast(e.message, 'err'); return; }
 
   running = true;
+  syncCropSections();
   $('#runBtn').disabled = true;
   $('#demoBtn').disabled = true;
   $('#runBtn').textContent = '模拟中…';
@@ -215,7 +307,7 @@ async function startRun(year, crop) {
   elapsedEl.textContent = '';
 
   try {
-    const r = await postJSON('/api/run', { year: Number(year), crop, ...irrigationRunOptions(crop) });
+    const r = await postJSON('/api/run', { year: Number(year), crop, ...options });
     if (!r.ok) throw new Error(r.error || '启动失败');
     currentJobId = r.job_id;
     $('#downloadLog').href = BASE + `/api/job/${r.job_id}/log.txt`;
@@ -260,6 +352,7 @@ function watch(jobId) {
 
 function finishUI() {
   running = false;
+  syncCropSections();
   $('#runBtn').disabled = false;
   $('#runBtn').textContent = '开始模拟';
   $('#demoBtn').disabled = false;
@@ -267,6 +360,7 @@ function finishUI() {
 
 /* ---------------- 结果渲染 ---------------- */
 function clearResults() {
+  $('#agronomyResult').classList.add('hidden');
   $('#evidenceBody').innerHTML = '<div class="empty-state">暂无</div>';
   $('#kpiRow').classList.add('hidden');
   $('#kpiRow').innerHTML = '';
@@ -281,38 +375,48 @@ function clearResults() {
 
 function renderResult(jobId, res) {
   lastResult = res;
-  const currentModel = res.model_revision === '2026-10-22-corn-water-v5';
+  const directModel = ['2026-10-23-agronomy-v8', '2026-10-23-corn-direct-v7'].includes(res.model_revision);
+  const moistureModel = directModel || res.model_revision === '2026-10-23-corn-moisture-v6';
+  const currentModel = moistureModel || res.model_revision === '2026-10-22-corn-water-v5';
   const currentRice = currentModel || res.model_revision === '2026-10-22-rice-v4';
   const standardRice = currentRice || res.model_revision === '2026-10-22-rice-v3';
   const netWater = ['net_with_puddling_v2', 'net_profile_puddling_v3', 'net_puddling_balance_v4'].includes(res.irrigation_basis);
-  if (currentModel && res.irrigation_settings) {
+  if (currentModel) {
     $('#yearSelect').value = String(res.year);
     $$('#yearChips .chip').forEach(chip => chip.classList.toggle('on', chip.textContent === String(res.year)));
     const cropValue = (res.crops || []).length === 2 ? 'both' : (res.crops || [])[0];
     if (cropValue) $(`input[name=crop][value=${cropValue}]`).checked = true;
-    $('#yieldTarget').value = String(Math.round(res.yield_target * 100));
-    Object.entries(res.irrigation_settings).forEach(([crop, settings]) => {
-      const profile = $('#' + crop + 'Profile');
-      profile.value = settings.profile;
-      profile.dispatchEvent(new Event('change'));
-      $('#' + crop + 'Coefficient').value = settings.coefficient == null ? '' : String(settings.coefficient);
-      $('#' + crop + 'AppEff').value = String(settings.application_efficiency_pct);
+    syncPlantingYear(true);
+    if (agronomyConfig) Object.entries(res.agronomy_settings || {}).forEach(([crop, settings]) => {
+      $('#' + crop + 'PlantingDate').value = settings.planting_date_iso;
+      $('#' + crop + 'SoilType').value = settings.soil_type;
+      renderSoilEditor(crop, settings.soil);
     });
+    syncCropSections();
   }
+  const agronomyResult = $('#agronomyResult');
+  agronomyResult.textContent = Object.entries(res.agronomy_settings || {}).map(([crop, settings]) =>
+    `${crop === 'rice' ? '水稻移栽' : '玉米播种'}：${settings.planting_date_iso}；${settings.soil.name}`).join(' ｜ ');
+  agronomyResult.classList.toggle('hidden', !res.agronomy_settings);
 
   /* --- KPI 条：把最优灌溉制度摊成指标卡 --- */
   const kpis = [];
+  if (moistureModel && res.corn_optimization) {
+    const opt = res.corn_optimization;
+    kpis.push({ k: '玉米 · 墒情控制最优阈值', v: `（${opt.selected_smt.join('，')}）`, unit: '' });
+    kpis.push({ k: '玉米 · AquaCrop阈值模拟', v: opt.evaluations, unit: '组' });
+  }
   if (res.kpi && res.kpi.length) {
     res.kpi.forEach(k => {
-      kpis.push({ k: `${k['作物']} · 节水候选${netWater ? '净' : ''}灌水`, v: fmtNum(k['累计灌溉量(mm)'], 1), unit: 'mm', kind: 'accent' });
-      kpis.push({ k: `${k['作物']} · 节水候选`, v: k['最优方案'], unit: '' });
-      if (currentModel) {
+      kpis.push({ k: `${k['作物']} · ${directModel ? '最优' : '历史候选'}${netWater ? '净' : ''}灌水`, v: fmtNum(k['累计灌溉量(mm)'], 1), unit: 'mm', kind: 'accent' });
+      kpis.push({ k: `${k['作物']} · ${directModel ? '最佳灌溉方式' : '历史候选'}`, v: k['最优方案'], unit: '' });
+      if (currentModel && !directModel) {
         kpis.push({ k: `${k['作物']} · 最高产方案`, v: k['最高产方案'], unit: '' });
         kpis.push({ k: `${k['作物']} · 较峰值减产`, v: fmtNum(k['较峰值减产(%)'], 2), unit: '%' });
         kpis.push({ k: `${k['作物']} · 候选水源取水估算`, v: fmtNum(k['水源取水量估算(mm)'], 1), unit: 'mm' });
       }
       /* 展示相对产量；天气充足时可以出现平台，不预设最佳档位。 */
-      kpis.push({ k: `${k['作物']} · 达峰值产量`, v: fmtNum(k['产量达最大百分比(%)'], 1), unit: '%' });
+      if (!directModel) kpis.push({ k: `${k['作物']} · 达峰值产量`, v: fmtNum(k['产量达最大百分比(%)'], 1), unit: '%' });
       const yieldLabel = standardRice && k['作物'] === '水稻' ? '产量（14.5%水分）' : '产量';
       kpis.push({ k: `${k['作物']} · ${yieldLabel}`, v: fmtNum(k['产量(t/ha)'], 2), unit: 't/ha' });
       kpis.push({ k: `${k['作物']} · 灌溉 WUE`, v: fmtNum(k['灌溉WUE(kg/m³)'], 3), unit: 'kg/m³' });
@@ -336,11 +440,11 @@ function renderResult(jobId, res) {
 
   /* --- 最优制度表 --- */
   if (res.optimal && res.optimal.rows.length) {
-    const indices = res.optimal.columns.map((c, i) => i).filter(i => !(currentModel && res.optimal.columns[i] === '最优方案'));
-    const view = { columns: indices.map(i => res.optimal.columns[i] === '最优方案' ? '历史候选方案' : res.optimal.columns[i]), rows: res.optimal.rows.map(row => indices.map(i => row[i])) };
+    const indices = res.optimal.columns.map((c, i) => i).filter(i => !(!directModel && currentModel && res.optimal.columns[i] === '最优方案'));
+    const view = { columns: indices.map(i => !directModel && res.optimal.columns[i] === '最优方案' ? '历史候选方案' : res.optimal.columns[i]), rows: res.optimal.rows.map(row => indices.map(i => row[i])) };
     renderTable($('#optimalBody'), tableForDisplay(view));
   } else {
-    $('#optimalBody').innerHTML = '<div class="empty-state">无优化方案结果</div>';
+    $('#optimalBody').innerHTML = `<div class="empty-state">${directModel ? '水稻待提供四个新方案后确定最优；现有结果仅供对比。' : '无优化方案结果'}</div>`;
   }
 
   /* --- 汇总表（高亮最优方案行） --- */
@@ -356,8 +460,9 @@ function renderResult(jobId, res) {
     });
   }
   renderTable($('#summaryBody'), tableForDisplay(res.summary), { highlight: hl });
-  $('#optimalCriterion').textContent = currentModel ? `产量达到全部方案峰值的${fmtNum((res.yield_target || .95) * 100, 0)}%，再取最少净灌水；最高产与节水候选分开报告` : '历史任务按旧95%门槛筛选，未提供新版雨养诊断';
-  $('#summarySub').textContent = `${res.year} 年 · ${res.summary.rows.length} 个方案（绿色行为节水候选）`
+  $('#optimalTitle').textContent = directModel ? '最佳灌溉方式' : '历史候选结果';
+  $('#optimalCriterion').textContent = directModel ? '玉米直接采用模型最优档位：产量最高，同等产量下净灌水最少；水稻待四个新方案' : '历史结果按当时的保产比例筛选，请重新运行以使用模型最优档位';
+  $('#summarySub').textContent = `${res.year} 年 · ${res.summary.rows.length} 个方案（绿色行为${directModel ? "玉米模型最优档位" : "历史候选"}）`
     + (netWater ? ' · 主统计为田间净量，毛量另列' : ' · 历史任务口径，不能与新版直接比较')
     + (currentRice ? ` · ${preparationFreeNotes(res.model_notes)}` : ' · 历史模型版本，请使用当前版本重新运行');
   const evidenceBox = $('#evidenceBody');
@@ -552,6 +657,7 @@ async function restoreJob(jobId) {
   if (s.log) appendDisplayLog(s.log, !['running', 'queued'].includes(s.status));
   if (s.status === 'running' || s.status === 'queued') {
     running = true;
+    syncCropSections();
     $('#runBtn').disabled = true;
     $('#runBtn').textContent = '模拟中…';
     setPill('run', s.progress || '运行中');
@@ -574,8 +680,14 @@ $('#demoBtn').addEventListener('click', () => {
   const y = years.includes('2024') ? '2024' : years[years.length - 1];
   if (!y) { toast('没有可用年份，请先导入气象数据', 'err'); return; }
   $('#yearSelect').value = y;
+  syncPlantingYear(true);
+  if (agronomyConfig) ['rice', 'corn'].forEach(crop => {
+    $('#' + crop + 'SoilType').value = agronomyConfig.defaults[crop].soil_type;
+    renderSoilEditor(crop);
+  });
   const rb = $('input[name=crop][value=both]');
   if (rb) rb.checked = true;
+  syncCropSections();
   startRun(y, 'both');
 });
 $('#toggleWide').addEventListener('click', () => {
@@ -583,7 +695,9 @@ $('#toggleWide').addEventListener('click', () => {
   applyWide();
 });
 
-Promise.all([loadYears(), loadUtilizationProfiles()]).then(() => {
+$('#yearSelect').addEventListener('change', () => syncPlantingYear());
+$$('input[name=crop]').forEach(input => input.addEventListener('change', syncCropSections));
+Promise.all([loadYears(), loadAgronomySettings()]).then(() => {
   const jid = qs('job');
   if (jid) restoreJob(jid);
 }).catch(e => toast('配置加载失败：' + e.message, 'err'));

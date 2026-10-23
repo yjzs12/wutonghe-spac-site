@@ -106,7 +106,12 @@ def get_soil_config(crop: str) -> dict:
     """根据作物类型返回对应土壤配置。
     crop: 'rice' -> 水田土壤；'corn'/'maize' -> 旱田土壤
     """
+    from config.simulation_settings import get_active
     c = crop.lower()
+    key = "rice" if c in ("rice", "paddy", "水稻") else "corn" if c in ("corn", "maize", "玉米") else c
+    override = get_active(key).get("soil")
+    if override is not None:
+        return override
     if c in ("rice", "paddy", "水稻"):
         return PADDY_SOIL
     if c in ("corn", "maize", "玉米"):

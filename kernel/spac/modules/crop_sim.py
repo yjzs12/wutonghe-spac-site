@@ -47,6 +47,8 @@ def build_crop(crop: str) -> Crop:
     else:
         raise ValueError(f"未知作物: {crop}")
 
+    from config.simulation_settings import planting_date
+    planting = planting_date("rice" if c in ("rice", "paddy", "水稻") else "corn")
     from config.soil_params import get_soil_config
     profile_depth=sum(layer["depth"] for layer in get_soil_config(crop)["layers"])
     if params["Zmax"]+.1>profile_depth+1e-8:

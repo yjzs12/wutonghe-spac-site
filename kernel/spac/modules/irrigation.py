@@ -4,7 +4,7 @@
 ==================================
 对应大纲 2.5 灌溉管理模块：
   通过设定不同生育期水层上下限 / SMT 阈值,模拟从"雨养型(重胁迫)"到"较高水量(过量灌溉)"
-  的对比梯度,得出不同灌水量时的模拟产量响应，并按显式保产约束筛选。
+  的对比梯度,得出不同灌水量时的模拟产量响应。
 
 方案设计(按作物类型分别采用不同优化策略):
   (1) 水稻 —— 水层上下限闭环调控(6 个方案, 逐日反馈改 Schedule, 内核零改动)
@@ -16,12 +16,13 @@
       固定定额 891 mm」的日历仅保留作回退(mode='normal')。
       ⇒ 全工程 6 个方案共用同一套灌溉机制, 差异只体现在上下限表。
 
-  (2) 玉米 —— SMT 自动调控方案(method=1, 5 档阈值梯度)
+  (2) 玉米 —— 墒情控制六档 + 正常灌溉对照
       旱作无水层, 通过 SMT 设定不同生育期土壤水分目标下限
-      (阈值越小胁迫越重), 形成完整优化梯度。
+      固定阈值为四阶段全100、全75、全50、全25；雨养关闭灌溉。
+      最优四阶段阈值由 AquaCrop 搜索，优先最高产，同产量下尽量减少灌水。
       正常灌溉对照(固定日历)作为基准。
 
-  节水候选为达到所选峰值比例时用水最少的方案，可能是零灌溉。
+  玉米最优档位直接采用模型搜索结果；水稻等待四个新方案后再确定最优。
   未输入水价、粮价及灌溉成本，不据此宣称经济最优或实测最优。
 
 SMT 四阶段阈值含义(%TAW,根区有效水下限,仅用于玉米):
@@ -46,7 +47,7 @@ from modules.paddy_control import bands_for, bands_for_ck, describe_bands, CK_BA
 #  方案标签与类型常量
 # =========================================================================== #
 
-# 5 档方案中文标签(灌水量由低到高, 正常灌溉量落在中间基准档"适宜水量")
+# 水稻 5 档方案中文标签；玉米另用四阶段阈值标签。
 # 命名口径("水量档位型"): 直接按灌水量高低命名, 不混用"胁迫/灌溉"两套词;
 #   低水量侧 = 水分胁迫重, 高水量侧 = 过量灌溉。
 # 2026-10-21 由 7 档压到 5 档: 水稻 7 档实测 L4–L7 产量完全相同(多灌 319mm 换 0 产量),
@@ -76,6 +77,13 @@ def scheme_id(label: str) -> str:
     """
     if label == NORMAL_LABEL:
         return NORMAL_ID
+    if label.startswith("最优（"):
+        return "OPT"
+    if label == "雨养":
+        return "RAIN"
+    for level in (100, 75, 50, 25):
+        if label == corn_smt_label([level] * 4):
+            return f"SMT{level}"
     if label in SCHEME_LABELS:
         return SCHEME_IDS[SCHEME_LABELS.index(label)]
     return str(label)
@@ -84,7 +92,12 @@ def scheme_id(label: str) -> str:
 TYPE_NORMAL = "正常灌溉对照"   # 基准情景：水稻=水层反馈，玉米=固定日历净144mm，均非实测处理记录
 TYPE_PADDY = "水层管理"        # 水稻固定水层管理(旧: 固定日期+固定定额, 已停用但保留)
 TYPE_WLAYER = "水层调控"       # 水稻按阶段上下限闭环调控(现行)
-TYPE_SMT = "SMT调控"           # 玉米 SMT 调控
+TYPE_SMT = "墒情控制"           # 玉米根区土壤水分阈值控制
+
+
+def corn_smt_label(smt, optimal=False):
+    """四个生育阶段的实际阈值，不将显示名称当作计算参数。"""
+    return ("最优" if optimal else "") + "（" + "，".join(str(int(v)) for v in smt) + "）"
 
 
 # =========================================================================== #
@@ -227,7 +240,7 @@ def _build_rice_schedule(sim_year: int, depths: List[int]) -> pd.DataFrame:
 
 
 # =========================================================================== #
-#  玉米 SMT 调控方案 —— method=1 + 5 档阈值梯度
+#  玉米墒情控制 —— 四档固定阈值，另有雨养和动态优化
 #
 #  设计原理:
 #  - 低阈值(雨养型/低水量): 允许土壤水大量消耗 → 产量低 → 优化过程前段
@@ -237,22 +250,11 @@ def _build_rice_schedule(sim_year: int, depths: List[int]) -> pd.DataFrame:
 #  SMT 数值语义: 当日 Dr/TAW > 1 - SMT/100 时灌溉(补到田间持水)。
 #  ⇒ **SMT 越大 = 允许耗竭越少 = 灌得越多**。
 #
-#  农学依据(三江平原玉米, 雨养为主 + 补充灌溉):
-#    玉米全生育期需水 450-600 mm, 同期降水约 410-490 mm, 缺口 150-250 mm,
-#    集中在拔节、抽雄吐丝、灌浆三个关键期。
-#    FAO-56 玉米 p=0.55(允许耗竭 55%), 国内 SMT 研究常用 50-65% 作为
-#    「适宜」调控上限 ⇒ 本表适宜档取 45-55, 较高档 70-80 属明显过量。
-#  2026-10-21 由 7 档压到 5 档: 高端 3 档灌水量与产量均已平台化。
+#  固定对比档按用户指定的100/75/50/25设置，不预设某档农学最优。
 # =========================================================================== #
 
 SMT_LEVELS: Dict[str, List[List[int]]] = {
-    "corn": [
-        [3,  3,  3,  3],    # L1 占位；主流程用真正关闭灌溉替代本阈值
-        [12, 15, 15, 8],    # L2 低水量；实际水量由气象与土壤反馈计算
-        [25, 32, 30, 18],   # L3 中低水量
-        [45, 55, 50, 32],   # L4 适宜水量是方案名，不代表已经校准为最优
-        [70, 80, 75, 50],   # L5 较高水量
-    ],
+    "corn": [[level] * 4 for level in (100, 75, 50, 25)],
 }
 
 
@@ -303,10 +305,10 @@ SchemeTuple = Tuple[str, Optional[List[int]], str, Optional[List[int]], str]
 
 
 def get_smt_schemes(crop: str) -> List[SchemeTuple]:
-    """返回作物的全部灌溉方案列表(正常灌溉对照 + 5 档优化方案)。
+    """返回作物的全部灌溉方案列表。
 
     水稻: 正常灌溉对照(官方规程上下限) + 5 档水层调控方案(阶段水层上下限)
-    玉米: 固定净定额144mm对照 + 零灌溉对照 + 4档SMT补灌
+    玉米: 固定净定额144mm对照 + 四档固定阈值 + 雨养 + 动态最优
 
     Returns
     -------
@@ -333,11 +335,12 @@ def get_smt_schemes(crop: str) -> List[SchemeTuple]:
     else:
         raise ValueError(f"未知作物: {crop}")
 
-    # 玉米: 正常灌溉对照 + 5 档 SMT
+    # 玉米: 对照单列；四个固定阈值、真正雨养、AquaCrop 动态搜索最优，共六档。
     schemes = [(NORMAL_LABEL, None, "normal", None, TYPE_NORMAL)]
-    for index, (label, smt) in enumerate(zip(SCHEME_LABELS, SMT_LEVELS[key])):
-        # A rainfed treatment must have irrigation disabled, even in dry years.
-        schemes.append((label, None if index==0 else list(smt), "rainfed" if index==0 else "smt", None, TYPE_SMT))
+    for smt in SMT_LEVELS[key]:
+        schemes.append((corn_smt_label(smt), list(smt), "smt", None, TYPE_SMT))
+    schemes.append(("雨养", None, "rainfed", None, TYPE_SMT))
+    schemes.append(("最优（运行后计算）", None, "optimize", None, TYPE_SMT))
     return schemes
 
 
@@ -362,6 +365,8 @@ def build_irrigation(crop: str, smt: Optional[List[int]] = None,
     sim_year : 年份(用于生成灌水日历日期)
     """
     is_rice = crop.lower() in ("rice", "paddy", "水稻")
+    if mode == "optimize":
+        raise ValueError("动态最优须先经 AquaCrop 搜索，不能直接作为灌溉管理参数")
     import math
     efficiency=float(application_efficiency_pct)
     if not math.isfinite(efficiency) or not 0<efficiency<=100:

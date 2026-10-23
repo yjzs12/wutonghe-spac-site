@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 
-def irrigation_evidence(results, summary, yield_target=.95):
+def irrigation_evidence(results, summary):
     records=[]
     for crop in sorted({r.crop for r in results}):
         if crop!="corn":
@@ -33,16 +33,15 @@ def irrigation_evidence(results, summary, yield_target=.95):
         hi_col="harvest_index" if "harvest_index" in growth else "harvest_index_adj"
         positives=np.flatnonzero(growth[hi_col].to_numpy()>1e-8)
         max_gain=(yp-yf)/yf*100 if yf>0 else None
-        message=(f"零灌溉产量达到所选{yield_target*100:g}%峰值门槛，模型支持当年可少灌或不补灌；"
-                 if retention+1e-10>=yield_target else
-                 f"零灌溉未达到所选{yield_target*100:g}%峰值门槛，模型支持补充灌溉；")
-        message+=f"相对最高产方案仍减产{(1-retention)*100:.2f}%。这不是当地雨养最优的实测证明。"
+        optimum = next((r for r in group if "墒情优化" in r.summary), None)
+        message = f"雨养产量{yf:.4f} t/ha，最高模拟产量{yp:.4f} t/ha；相差{(yp-yf):.4f} t/ha。"
+        if optimum is not None:
+            message += f"最佳灌溉方式直接采用模型最优档位{optimum.label}，净灌水{optimum.summary['累计灌溉量(mm)']:.2f} mm。"
         record={"作物":"玉米","年份":rainfed.sim_year,"零灌溉产量(t/ha)":yf,
             "最高产方案":peak.label,"最高产量(t/ha)":yp,
             "最高产方案净灌水(mm)":float(peak.summary["累计灌溉量(mm)"]),
             "雨养达峰值(%)":retention*100,"雨养较峰值减产(%)":(1-retention)*100,
-            "最大补灌增产(%)":max_gain,"保产比例(%)":yield_target*100,
-            "雨养满足保产门槛":retention+1e-10>=yield_target,
+            "最大补灌增产(%)":max_gain,
             "生育期降雨(mm)":float(d.loc[active,"降雨量(mm)"].sum()),
             "生育期ET0(mm)":float(d.loc[active,"参考蒸散ET0(mm)"].sum()),
             "雨养生育期实际ET(mm)":float(d.loc[active,"蒸腾蒸发量(mm)"].sum()),

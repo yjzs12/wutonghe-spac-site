@@ -11,7 +11,7 @@
     GET  /api/weather_template          气象 CSV 模板（7 列）
     POST /api/weather                   上传并导入气象 CSV
     GET  /api/weather/preview?year=     读回某年气象数据前若干行 + 统计
-    POST /api/run                       启动 8 方案模拟，返回 job_id
+    POST /api/run                       启动所选作物方案模拟，返回 job_id
     GET  /api/env                       依赖与内核自检
     GET  /api/job/{id}?offset=          任务状态 + 增量日志
     GET  /api/jobs                      最近任务
@@ -47,7 +47,7 @@ WEB_DIR = Path(__file__).resolve().parent / "web"
 
 app = sa.make_service(TITLE, VERSION, BASE_PATH, PUBLIC_PREFIX,
                       description=f"土壤-作物-大气连续体耦合模拟 · "
-                                  f"{engine.n_schemes('rice')} 档灌溉方案优化")
+                                  f"水稻 {engine.n_schemes('rice')} 方案；玉米墒情控制六档及对照")
 manager = JobManager(CONFIG.work_dir / "spac", "spac")
 
 # 登录 / 验证码 / 全站鉴权（中间件只拦 /api/* 与 /files/*）
@@ -119,16 +119,36 @@ def weather_preview(request: Request, year: int, limit: int = 12):
 CROP_CN = {"rice": "水稻", "corn": "玉米"}
 
 
+class SoilLayerReq(BaseModel):
+    model_config = {"extra": "forbid", "allow_inf_nan": False}
+    depth: float
+    SAT: float
+    FC: float
+    PWP: float
+    Ks: float
+    penetrability: float
+
+
+class AgronomyReq(BaseModel):
+    model_config = {"extra": "forbid", "allow_inf_nan": False}
+    planting_date: str | None = None
+    soil_type: str
+    soil_layers: list[SoilLayerReq] | None = None
+    soil_cn: float | None = None
+
+
 class RunReq(BaseModel):
+    model_config = {"extra": "forbid"}
     year: int = Field(..., description="模拟年份")
     crop: str = Field("both", description="rice | corn | both")
-    yield_target_pct: float = Field(95.,ge=90.,le=100.,description="节水候选保产比例")
     rice_profile: str = "rice_surface"
     corn_profile: str = "corn_canal"
     rice_coefficient: float | None = None
     corn_coefficient: float | None = None
     rice_application_efficiency_pct: float = Field(90.,gt=0.,le=100.)
     corn_application_efficiency_pct: float = Field(90.,gt=0.,le=100.)
+    rice_agronomy: AgronomyReq | None = None
+    corn_agronomy: AgronomyReq | None = None
 
 
 @app.post(f"{BASE_PATH}/api/run")
@@ -138,8 +158,11 @@ def run(req: RunReq, request: Request):
         raise HTTPException(400, "crop 只能是 rice / corn / both")
     options={c:{"profile":getattr(req,c+"_profile"),"coefficient":getattr(req,c+"_coefficient"),
                 "application_efficiency_pct":getattr(req,c+"_application_efficiency_pct")} for c in crops}
+    agronomy = {c: value.model_dump(exclude_none=True) for c in crops
+                if (value := getattr(req, c + "_agronomy")) is not None}
     try:
-        engine.validate_run_settings(crops,options,req.yield_target_pct/100.)
+        engine.validate_run_settings(crops,options)
+        engine.validate_agronomy_settings(crops, req.year, agronomy)
     except ValueError as e:
         raise HTTPException(400,str(e)) from e
 
@@ -159,7 +182,7 @@ def run(req: RunReq, request: Request):
         job.progress = f"{req.year} 年模拟中"
         return engine.run(crops, req.year, job.out_dir, owner=who,
                           progress=lambda msg: setattr(job, "progress", msg),
-                          irrigation_options=options,yield_target=req.yield_target_pct/100.)
+                          irrigation_options=options, agronomy_options=agronomy)
 
     job = manager.submit(title, task, params=req.model_dump(),
                          owner=who)
@@ -180,11 +203,20 @@ def capabilities():
         "crops": [{"value": "rice", "label": "水稻"},
                   {"value": "corn", "label": "玉米"},
                   {"value": "both", "label": "两种都运行"}],
-        "n_scenarios_per_crop": engine.n_schemes("rice"),
+        "n_scenarios_per_crop": {crop: engine.n_schemes(crop) for crop in ("rice", "corn")},
+        "corn_moisture_control": {
+            "label": "墒情控制",
+            "fixed_smt": [[value] * 4 for value in (100, 75, 50, 25)],
+            "rainfed": True,
+            "optimal": "AquaCrop四阶段阈值搜索；直接采用最高产、同产量最少净灌水的组合",
+            "reference_separate": True,
+        },
         "figures_per_crop": 6,
         "accepts": ["weather_csv"],
         "utilization_profiles":UTILIZATION_PROFILES,
-        "yield_target_range_pct":[90,100],
+        "agronomy":engine.agronomy_capabilities(),
+        "optimization_rule":"max_yield_then_min_irrigation",
+        "rice_optimization_status":"pending_four_schemes",
     }
 
 

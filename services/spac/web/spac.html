@@ -6,6 +6,17 @@
 <meta name="app-base" content="__BASE__">
 <title>梧桐河灌区 · 作物生长模型</title>
 <link rel="stylesheet" href="__BASE__/static/app.css?v=__V__">
+<style>
+.agronomy-section { border:1px solid var(--border-strong); border-radius:var(--radius-sm); padding:12px; margin:16px 0; min-width:0; }
+.agronomy-section legend { color:var(--text-2); font-size:13px; font-weight:600; padding:0 5px; }
+.agronomy-section input[type=date] { width:100%; min-width:0; box-sizing:border-box; padding:8px 10px; font:inherit; font-size:13px; color:var(--text); background:var(--bg-elev); border:1px solid var(--border-strong); border-radius:var(--radius-sm); }
+.agronomy-section select { min-width:0; max-width:100%; }
+.soil-editor summary { cursor:pointer; color:var(--text-2); font-size:13px; }
+.soil-editor .hint { font-size:12px; color:var(--text-3); line-height:1.6; margin:8px 0; }
+.soil-layer { border-top:1px solid var(--border-strong); margin:12px 0; padding-top:10px; font-size:12px; }
+.soil-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 10px; margin-top:8px; }
+.soil-grid input { min-width:0; }
+</style>
 </head>
 <body>
 
@@ -23,8 +34,8 @@
 
   <h1 class="page-title">基于 SPAC 的典型作物生长模型</h1>
   <p class="page-desc">
-    土壤-作物-大气连续体耦合模拟 ｜ FAO-56参考蒸散与作物水分生产力计算 ｜ 每作物6档灌溉方案（对照CK + 水量梯度L1–L5）
-    ｜ 分别报告最高产方案、保产节水候选与零灌溉对照
+    土壤-作物-大气连续体耦合模拟 ｜ FAO-56参考蒸散与作物水分生产力计算 ｜ 水稻6方案；玉米墒情控制6档 + 对照CK
+    ｜ 玉米直接采用模型最优档位；水稻四个新方案待提供
   </p>
 
   <div class="grid-side">
@@ -69,7 +80,7 @@
           <div class="field">
             <label>模拟年份</label>
             <select id="yearSelect"><option value="">（无数据，请先导入气象数据）</option></select>
-            <div class="hint">模拟期 <code id="periodHint">04-01 ~ 10-15</code>。L1/L2只作水稻缺水试验；水稻候选须通过返青、孕穗开花期保水检查。水稻产量暂按14.5%含水率折算，下载表保留干重。</div>
+            <div class="hint">模拟期 <code id="periodHint">04-01 ~ 10-15</code>。水稻现有方案仅供对比，待四个新方案替换后确定最优。水稻产量暂按14.5%含水率折算，下载表保留干重。</div>
           </div>
 
           <div class="field">
@@ -79,29 +90,11 @@
               <label><input type="radio" name="crop" value="corn"><span>玉米</span></label>
               <label><input type="radio" name="crop" value="both" checked><span>两种都运行</span></label>
             </div>
-            <div class="hint">每作物 6 个方案（对照 CK + 水量梯度 L1–L5），单作物约 1 分钟。运行期间请勿关闭页面。</div>
+            <div class="hint">水稻 6 个方案；玉米为对照 CK + 墒情控制六档：100/75/50/25 四组等值阈值、雨养、动态最优。玉米需搜索多个阈值组合，运行时间随气象和设备变化。运行期间请勿关闭页面。</div>
           </div>
 
-          <div class="field">
-            <label for="yieldTarget">节水候选保产比例</label>
-            <select id="yieldTarget"><option value="95">95%峰值（允许最多5%模拟减产）</option><option value="99">99%峰值（允许最多1%模拟减产）</option><option value="100">100%峰值（最高产水平）</option></select>
-            <div class="hint">选择满足此比例且田间净灌水最少的方案。雨养达标时可成为节水候选，但不等于雨养最高产或实测最优。</div>
-          </div>
-          <div class="field">
-            <label for="riceProfile">水稻供水类型及总利用系数</label>
-            <select id="riceProfile" disabled><option>加载中…</option></select>
-            <input id="riceCoefficient" type="number" step="0.001" value="0.715" aria-label="水稻总利用系数">
-            <label for="riceAppEff">水稻田间施加效率（%）</label>
-            <input id="riceAppEff" type="number" min="1" max="100" step="0.1" value="90">
-          </div>
-          <div class="field">
-            <label for="cornProfile">玉米灌溉方式及总利用系数</label>
-            <select id="cornProfile" disabled><option>加载中…</option></select>
-            <input id="cornCoefficient" type="number" step="0.001" value="0.700" aria-label="玉米总利用系数">
-            <label for="cornAppEff">玉米田间施加效率（%）</label>
-            <input id="cornAppEff" type="number" min="1" max="100" step="0.1" value="90">
-            <div class="hint">默认水田地表水、旱田渠灌。总利用系数取来源表区间中值，田间施加效率90%为单独假设，均可修改。取水估算＝净需水÷总利用系数，包含的田间损失不重复扣减。选灌溉方式只改变用水换算，不模拟滴头或喷灌设备的空间湿润过程。</div>
-          </div>
+          <div id="agronomySettings" aria-live="polite"><div class="hint">正在加载种植日期与土壤预设…</div></div>
+          <div class="hint">播种/移栽日期及土壤参数用于本次模拟。收获日期和品种生育参数沿用模型默认值，推迟种植可能缩短生长期。内置土壤为通用预设，本地土壤为格网估计与等效参数，均可展开修改。</div>
           <div class="actions">
             <button class="btn btn-primary btn-block" id="runBtn">开始模拟</button>
           </div>
@@ -149,8 +142,10 @@
         <details class="help">
           <summary>输出结果说明</summary>
           <div class="body">irrigation_optimization_年份.csv   方案汇总表（灌水量 / 标准水分产量与干重 / ET / WUE）
-optimal_irrigation_年份.csv        95%峰值节水候选灌溉制度（产量达 95% 峰值）
+optimal_irrigation_年份.csv        玉米最佳灌溉方式（直接采用模型最优档位）
 water_requirement_年份.csv         作物需水量逐月统计（ET0 / ETc / Kc / 降雨 / 灌溉）
+corn_smt_search_年份.csv            玉米四阶段阈值搜索记录（产量 / 净灌水 / Pareto前沿）
+corn_smt_optimization_年份.json     玉米最优阈值与筛选依据
 daily_作物_方案_年份.csv           各方案逐日结果
 original_作物_方案_年份.xlsx       内核原始输出（4 个工作表）
 figures/yield_irr_curve_*.png      产量-灌水量响应曲线
@@ -163,7 +158,7 @@ figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都�
         </details>
         <details class="help">
           <summary>模拟期、移栽日期与 Kc 口径</summary>
-          <div class="body">模拟期自 04-01 起、10-15 止，但作物真正进入田间的日期更晚：
+          <div class="body">模拟期自 04-01 起、10-15 止，作物进入田间的日期由上方自选。下列为默认日期示例：
 
   作物   田间作业        出苗        移栽/播种前空天数
   水稻   05-15 移栽     05-17      44 天
@@ -178,6 +173,7 @@ figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都�
 
 关于 10-15 这个末日：本区收获期为 09-25，早于模拟期末日，收获后模型即
 停止记录、后续天数为空，结果便在 09-25 之前一天收尾（共 177 天）。
+修改种植日期后，作物期统计与图件标记同步使用所选日期。土壤按所选预设及修改后的分层参数计算，运行设置随结果下载。
 所以 10-15 之后的日期不参与任何计算，模拟结果早于 10-15 结束属正常，
 不影响任何指标；10-15 仅作为模拟期的安全上界保留。</div>
         </details>
@@ -205,6 +201,7 @@ figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都�
     <!-- ==================== 右：结果工作台（一页看全所有出图） ==================== -->
     <div class="col">
       <div class="workbench">
+        <div class="notice hidden" id="agronomyResult"></div>
 
         <div class="kpis hidden" id="kpiRow"></div>
 
@@ -224,8 +221,8 @@ figures/multi_crop_comparison_*.png  水稻 / 玉米方案对比（两作物都�
         <div class="grid-2">
           <div class="card" id="resultCard">
             <div class="card-head">
-              <h2>保产节水候选</h2>
-              <span class="sub" id="optimalCriterion">达到所选保产比例的最小净灌水量</span>
+              <h2 id="optimalTitle">最佳灌溉方式</h2>
+              <span class="sub" id="optimalCriterion">直接采用 AquaCrop 最优档位</span>
             </div>
             <div class="card-body" id="optimalBody"><div class="empty-state">暂无</div></div>
           </div>

@@ -45,7 +45,7 @@ def build_soil(crop: str) -> Soil:
     soil = Soil(
         soil_type="custom",
         dz=dz,
-        cn=ep["cn"],
+        cn=cfg.get("cn", ep["cn"]),
         calc_cn=0,
         adj_cn=1,          # 按土壤水分自动调整 CN
         adj_rew=1,         # 自动计算 readily evaporable water

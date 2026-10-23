@@ -41,7 +41,7 @@ def puddling_balance(weather, planting_date, moisture=None, days=PUDDLING_DAYS,
     if target<0:
         raise ValueError("泡田前储水高于目标，需显式排水情景，不能以负灌溉处理")
     # Effective leakage is uncertain, not an independent observation of Ksat.
-    leak=float(get_soil_config("rice")["layers"][1]["Ks"] if percolation_mm_day is None else percolation_mm_day)
+    leak=float(layers[min(1, len(layers)-1)]["Ks"] if percolation_mm_day is None else percolation_mm_day)
     if not np.isfinite(leak) or leak<0:
         raise ValueError("泡田渗漏强度无效")
     storage=0.
