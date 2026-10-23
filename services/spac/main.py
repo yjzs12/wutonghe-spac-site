@@ -236,7 +236,7 @@ def capabilities():
         "accepts": ["weather_csv"],
         "utilization_profiles":UTILIZATION_PROFILES,
         "agronomy":engine.agronomy_capabilities(),
-        "optimization_rule":"max_yield_then_min_irrigation",
+        "optimization_rule":"corn_max_yield_rice_retention",
         "rice_optimization_status":"v6_candidate_uncalibrated",
         "rice_parameter_version":"wutonghe-rice-v6-20261023",
         "yield_target_range_pct":[90,100],
