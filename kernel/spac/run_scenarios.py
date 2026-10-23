@@ -5,11 +5,11 @@ SPAC 作物生长模型 —— 灌溉制度优化运行器
 对应大纲 2.7 模型运行及接口设置 + 灌溉制度优化：
 
 设计:
-  水稻保留正常灌溉对照 + 5 档水层调控，共 6 个方案。
+  水稻为CF、SWI、AWD、CI四制度，CF兼作常规对照。
   玉米为正常灌溉对照 + 墒情控制六档，共 7 个方案：
     四阶段全100、全75、全50、全25、雨养、AquaCrop动态最优。
   动态最优搜索四个生育阶段的整数阈值，直接采用最高产、同产量最少净灌水的组合。
-  水稻保留现有方案对比，待提供四个新方案后再确定最优。
+  水稻V6按保产比例筛选计算候选，未经田间验证。
 
 用法：
   python run_scenarios.py                          # 默认两年(2024, 2025)
@@ -52,10 +52,10 @@ CROPS = ["rice", "corn"]
 CROP_CN = {"rice": "水稻", "corn": "玉米"}
 
 
-def run_crop_optimization(crop: str, sim_year: int, application_efficiency_pct: float=90.) -> List[SimulationResult]:
+def run_crop_optimization(crop: str, sim_year: int, application_efficiency_pct: float=90., rice_management=None) -> List[SimulationResult]:
     """对单个作物在指定年份运行全部灌溉方案。
 
-    水稻: 正常灌溉对照 + 5 档水层调控方案
+    水稻: CF、SWI、AWD、CI四制度
     玉米: 正常灌溉对照 + 4 档固定墒情阈值 + 雨养 + 动态最优
     """
     schemes = get_smt_schemes(crop)
@@ -69,6 +69,9 @@ def run_crop_optimization(crop: str, sim_year: int, application_efficiency_pct: 
             info = "AquaCrop 四阶段阈值搜索"
         elif mode == "rainfed":
             info = "雨养（关闭灌溉）"
+        elif mode == "rice_regime":
+            from modules.rice_regimes import describe_regime
+            info = describe_regime(label)
         elif mode == "normal":
             info = "(固定日历)"
         elif mode == "wlayer":
@@ -89,7 +92,8 @@ def run_crop_optimization(crop: str, sim_year: int, application_efficiency_pct: 
             else:
                 res = run_simulation(crop, label, smt, mode=mode, depths=depths,
                                      scheme_type=scheme_type, sim_year=sim_year,
-                                     application_efficiency_pct=application_efficiency_pct)
+                                     application_efficiency_pct=application_efficiency_pct,
+                                     rice_management=rice_management if crop == "rice" else None)
             y = res.summary.get("最终籽粒产量(t/ha)", 0)
             irr = res.summary.get("累计灌溉量(mm)", 0)
             wue = res.summary.get("水分利用效率(kg/m³)", 0)
@@ -115,7 +119,7 @@ def run_crop_optimization(crop: str, sim_year: int, application_efficiency_pct: 
     return results
 
 
-def build_optimization_table(results: List[SimulationResult], sim_year: int) -> pd.DataFrame:
+def _corn_build_optimization_table(results: List[SimulationResult], sim_year: int) -> pd.DataFrame:
     """构建优化汇总表。"""
     rows = []
     for r in results:
@@ -124,7 +128,10 @@ def build_optimization_table(results: List[SimulationResult], sim_year: int) -> 
         # 灌溉参数列: SMT 方案显示阈值; 水层调控显示阶段上下限;
         #   正常灌溉对照按作物区分 —— 水稻自方案 A(2026-10-21) 起也走水层调控,
         #   玉米仍是固定日历 200mm。
-        if r.mode=="rainfed":
+        if r.mode == "rice_regime":
+            from modules.rice_regimes import describe_regime
+            param = describe_regime(r.label)
+        elif r.mode=="rainfed":
             param="雨养（关闭灌溉）" + ("；四阶段阈值=(0,0,0,0)，不触发自动补水" if r.label.startswith("最优（") else "")
         elif r.scheme_type == "墒情控制":
             param = f"SMT={r.smt}"
@@ -157,7 +164,8 @@ def build_optimization_table(results: List[SimulationResult], sim_year: int) -> 
             "累计毛灌溉量估算(mm)": r.summary.get("累计毛灌溉量估算(mm)", 0.0),
             "田间灌水效率(%)": r.summary.get("田间灌水效率(%)", 0.0),
             "灌水口径": "田间净量（含泡田储水、蒸发、渗漏，扣泡田降雨；不含渠系损失）" if r.crop=="rice" else "田间净量（不含渠系损失）",
-            "方案用途": "现有方案对比（待替换四方案）" if r.crop=="rice" else "AquaCrop优化" if "墒情优化" in r.summary else "墒情对比",
+            **{key: r.summary[key] for key in ("制度说明", "主动排水量(mm)", "扩展胁迫计算天数", "衰老胁迫计算天数", "气孔胁迫计算天数", "最大水量平衡残差(mm)") if key in r.summary},
+            "方案用途": "四制度水分过程试算（未率定）" if r.crop=="rice" else "AquaCrop优化" if "墒情优化" in r.summary else "墒情对比",
             "关键期无明水天数": r.summary.get("关键期无明水天数",0),
             "推荐候选": r.label.startswith("最优（") if r.crop == "corn" else False,
             "零灌溉对照": r.mode=="rainfed",
@@ -176,8 +184,78 @@ def build_optimization_table(results: List[SimulationResult], sim_year: int) -> 
     return pd.DataFrame(rows)
 
 
-def find_optimal(summary: pd.DataFrame) -> pd.DataFrame:
-    """直接采用玉米模型算出的最优档位；水稻等待四个新方案。"""
+def _rice_build_optimization_table(results: List[SimulationResult], sim_year: int) -> pd.DataFrame:
+    """构建优化汇总表。"""
+    rows = []
+    for r in results:
+        irr = r.summary.get("累计灌溉量(mm)", 0)
+        yld = r.summary.get("最终籽粒产量(t/ha)", 0)
+        # 灌溉参数列: SMT 方案显示阈值; 水层调控显示阶段上下限;
+        #   正常灌溉对照按作物区分 —— 水稻自方案 A(2026-10-21) 起也走水层调控,
+        #   玉米仍是固定日历 200mm。
+        if r.mode=="rainfed":
+            param="零灌溉，不设置自动补水"
+        elif r.scheme_type == "SMT调控":
+            param = f"SMT={r.smt}"
+        elif r.scheme_type == "水层调控":
+            param = describe_bands(r.smt)
+        elif r.scheme_type == "水层管理":
+            param = f"定额={r.depths} 合计={sum(r.depths)}mm"
+        elif r.scheme_type == "正常灌溉对照" and r.smt:
+            param = "对照·" + describe_bands(r.smt)
+        else:  # 正常灌溉对照(玉米) —— 固定日历
+            param = "固定日历"
+        if r.crop=="rice" and r.summary.get("关键期保护方案"):
+            param += "；候选V6：返青10→30mm；开花保护30→50mm，按作物HIstartCD/FloweringCD及已发生延迟对齐；R为控制层实际含水量/饱和含水量"
+        rows.append({
+            **{col:r.summary.get(col,0.) for col in ("犁底层底累计通量(mm)","生育期深层渗漏(mm)","管理排水量(mm)","补水后目标未达天数","暂态积水天数","控制期有明水天数")},
+            **{key: r.summary.get(key) for key in ("全模拟时段蒸腾蒸发量(mm)", "生育期蒸腾蒸发量(mm)", "模型冠层衰老终止", "模型生理成熟终止", "模拟生育天数", "配置成熟日数", "现场验证通过")},
+            "方案ID": scheme_id(r.label),
+            "参数版本": "wutonghe-rice-v6-20261023" if r.crop=="rice" else "corn-unchanged",
+            "控制层深度(m)": r.summary.get("控制层深度(m)"),
+            "年份": sim_year,
+            "作物": CROP_CN.get(r.crop, r.crop),
+            "方案类型": r.scheme_type,
+            "灌溉方案": r.label,
+            "灌溉参数": param,
+            # 泡田净补水含储水、蒸发、渗漏并扣实际降雨；毛量另列。
+            "泡田定额(mm)": r.summary.get("泡田定额(mm)", 0.0),
+            **{col:r.summary.get(col,0.) for col in ("泡田储水增量(mm)","泡田蒸发量(mm)","泡田渗漏量(mm)","泡田降雨量(mm)","泡田溢流量(mm)")},
+            "补充灌溉量(mm)": r.summary.get("补充灌溉量(mm)", irr),
+            "累计灌溉量(mm)": irr,
+            "补充毛灌溉量(mm)": r.summary.get("补充毛灌溉量(mm)", 0.0),
+            "累计毛灌溉量估算(mm)": r.summary.get("累计毛灌溉量估算(mm)", 0.0),
+            "田间灌水效率(%)": r.summary.get("田间灌水效率(%)", 0.0),
+            "灌水口径": "田间净量（含泡田储水、蒸发、渗漏，扣泡田降雨；不含渠系损失）" if r.crop=="rice" else "田间净量（不含渠系损失）",
+            "方案用途": "保水约束候选" if r.crop=="rice" and r.summary.get("关键期保护方案") else "缺水对比试验" if r.crop=="rice" else "SMT对比",
+            "关键期无明水天数": r.summary.get("关键期无明水天数",0),
+            "推荐候选": bool(r.summary.get("推荐候选",r.crop!="rice")),
+            "零灌溉对照": r.mode=="rainfed",
+            "最终籽粒产量(t/ha)": yld,
+            "最终干籽粒产量(t/ha)": r.summary.get("最终干籽粒产量(t/ha)", yld),
+            "产量含水率(%)": r.summary.get("产量含水率(%)", 0.0),
+            "产量口径": "14.5%含水率稻谷（暂定）" if r.crop == "rice" else "干籽粒",
+            "全季蒸腾蒸发量(mm)": r.summary.get("全季蒸腾蒸发量(mm)", 0),
+            "最终干物质量(t/ha)": r.summary.get("最终干物质量(t/ha)", 0),
+            "水分利用效率(kg/m³)": r.summary.get("水分利用效率(kg/m³)", 0),
+            "灌溉水分利用效率(kg/m³)": (
+                yld * 100 / irr if irr > 0 else None  # 零灌溉时该比值无定义
+            ),
+        })
+    return pd.DataFrame(rows)
+
+
+def build_optimization_table(results, sim_year):
+    parts = []
+    for crop, builder in (("rice", _rice_build_optimization_table), ("corn", _corn_build_optimization_table)):
+        group = [r for r in results if r.crop == crop]
+        if group:
+            parts.append(builder(group, sim_year))
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+
+
+def _corn_find_optimal(summary: pd.DataFrame) -> pd.DataFrame:
+    """直接采用玉米模型算出的最优档位；水稻四制度待田间率定。"""
     rows = []
     for crop_cn, sub in summary.groupby("作物"):
         if crop_cn == "水稻":
@@ -205,6 +283,70 @@ def find_optimal(summary: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _rice_find_optimal(summary: pd.DataFrame, yield_target: float=0.95) -> pd.DataFrame:
+    """寻找达到所选峰值比例时净灌水最少的候选。
+
+    比例默认为95%，可在90%—100%之间设置；这是保产节水约束，
+    不能据此证明产量拐点、经济最优或当地实测最优。
+
+    正常灌溉对照也参与比较，避免100%门槛时隐去实际最高产的对照。
+    水稻仍需满足关键期保水资格；不按方案名称预设候选。
+    """
+    import math
+    if not math.isfinite(yield_target) or not .90<=yield_target<=1.:
+        raise ValueError("保产比例须在90%—100%之间")
+    optimal_rows = []
+    for crop_cn, sub in summary.groupby("作物"):
+        opt_only = sub[sub["方案类型"].isin(["水层调控", "水层管理", "SMT调控", "正常灌溉对照"])].copy()
+        if opt_only.empty:
+            continue
+        opt_only = opt_only.sort_values(["累计灌溉量(mm)","最终籽粒产量(t/ha)"],ascending=[True,False],kind="stable")
+        # Benchmark and candidate pool both include the reference treatment.
+        y_max = float(sub["最终籽粒产量(t/ha)"].max())
+        if not math.isfinite(y_max) or y_max<=0:
+            raise ValueError("峰值产量无效，无法筛选节水候选")
+        threshold = yield_target * y_max
+        if "推荐候选" in opt_only:
+            opt_only=opt_only[opt_only["推荐候选"].eq(True)]
+        if opt_only.empty:
+            continue
+        # 找到第一个达到 95% 最大产量的点(按灌水量升序)
+        reached = opt_only[opt_only["最终籽粒产量(t/ha)"] >= threshold-1e-9]
+        if reached.empty:
+            continue
+        optimal = reached.iloc[0]
+        optimal_rows.append({
+            "作物": crop_cn,
+            "方案类型": optimal["方案类型"],
+            "最优方案": optimal["灌溉方案"],
+            "候选方案": optimal["灌溉方案"],
+            "保产比例(%)": yield_target*100,
+            "较峰值减产(%)": (1-optimal["最终籽粒产量(t/ha)"]/y_max)*100,
+            "判定性质": "给定气象与参数下的节水候选，不是实测或经济最优",
+            "灌溉参数": optimal["灌溉参数"],
+            "累计灌溉量(mm)": optimal["累计灌溉量(mm)"],
+            "累计毛灌溉量估算(mm)": optimal["累计毛灌溉量估算(mm)"],
+            "灌水口径": optimal["灌水口径"],
+            "产量(t/ha)": optimal["最终籽粒产量(t/ha)"],
+            "最大产量(t/ha)": y_max,
+            "产量达最大百分比(%)": optimal["最终籽粒产量(t/ha)"] / y_max * 100,
+            "灌溉WUE(kg/m³)": None if pd.isna(optimal["灌溉水分利用效率(kg/m³)"]) else float(optimal["灌溉水分利用效率(kg/m³)"]),
+            **{col:optimal.get(col) for col in ("利用系数类型","灌溉水利用系数","水源取水量估算(mm)","取水量估算(m³/亩)") if col in optimal.index},
+        })
+    return pd.DataFrame(optimal_rows)
+
+
+def find_optimal(summary, yield_target=.95):
+    parts = []
+    for crop, finder in (("水稻", lambda s: _rice_find_optimal(s, yield_target)), ("玉米", _corn_find_optimal)):
+        group = summary[summary["作物"].eq(crop)]
+        if not group.empty:
+            result = finder(group)
+            if not result.empty:
+                parts.append(result)
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+
+
 # --------------------------------------------------------------------------- #
 #  可视化
 # --------------------------------------------------------------------------- #
@@ -212,7 +354,7 @@ def plot_yield_irrigation_curve(results: List[SimulationResult], crop: str,
                                   sim_year: int, savepath: str):
     """绘制产量-灌水量响应曲线(灌溉制度优化核心图)。
 
-    水稻: 5 档水层调控方案(不显示正常灌溉对照)
+    水稻: 四制度（含CF常规对照）
     玉米: 四档固定阈值、雨养和动态最优共六档墒情控制(不显示正常灌溉对照)
     点标注: 玉米标SMT阈值, 水稻标定额合计
     """
@@ -222,7 +364,7 @@ def plot_yield_irrigation_curve(results: List[SimulationResult], crop: str,
 
     # 仅保留优化方案(水层调控/水层管理/墒情控制), 不显示正常灌溉对照
     opt_res = sorted(
-        [r for r in results if r.scheme_type in ("水层调控", "水层管理", "墒情控制")],
+        [r for r in results if crop == "rice" or r.scheme_type in ("水层调控", "水层管理", "墒情控制")],
         key=lambda r: r.summary.get("累计灌溉量(mm)", 0)
     )
 
@@ -247,7 +389,7 @@ def plot_yield_irrigation_curve(results: List[SimulationResult], crop: str,
 
     # 曲线标签按作物类型选择
     curve_label = ("水层调控方案产量" if crop == "rice" else "墒情控制方案产量")
-    ax1.plot(irr_opt, yld_opt, "o-", color="seagreen", linewidth=2.2, markersize=10,
+    ax1.plot(irr_opt, yld_opt, "o" if crop == "rice" else "o-", color="seagreen", linewidth=2.2, markersize=10,
              label=curve_label, zorder=3)
     ax1.set_xlabel("累计净灌溉量（mm）", fontsize=12)
     ax1.set_ylabel("稻谷产量（14.5%含水率，t/ha）" if crop == "rice" else "干籽粒产量 (t/ha)", color="seagreen", fontsize=12)
@@ -272,7 +414,7 @@ def plot_yield_irrigation_curve(results: List[SimulationResult], crop: str,
 
     # 次轴: WUE
     ax2 = ax1.twinx()
-    ax2.plot(irr_opt, wue_opt, "s--", color="coral", linewidth=1.5, markersize=7,
+    ax2.plot(irr_opt, wue_opt, "s" if crop == "rice" else "s--", color="coral", linewidth=1.5, markersize=7,
              label="WUE", alpha=0.7)
     ax2.set_ylabel("水分利用效率 (kg/m³)", color="coral", fontsize=12)
     ax2.tick_params(axis="y", labelcolor="coral")
@@ -298,11 +440,11 @@ def plot_multi_crop_comparison(all_summary: pd.DataFrame, sim_year: int, savepat
 
     for crop_cn, sub in all_summary.groupby("作物"):
         # 优化方案(水层管理 / 墒情控制), 排除正常灌溉对照
-        opt_sub = sub[sub["方案类型"].isin(["水层调控", "水层管理", "墒情控制"])].sort_values("累计灌溉量(mm)")
+        opt_sub = (sub if crop_cn == "水稻" else sub[sub["方案类型"].isin(["水层调控", "水层管理", "墒情控制"])]).sort_values("累计灌溉量(mm)")
         if opt_sub.empty:
             continue
         ax.plot(opt_sub["累计灌溉量(mm)"], opt_sub["最终籽粒产量(t/ha)"],
-                f"{markers.get(crop_cn, 'o')}-",
+                markers.get(crop_cn, "o") + ("" if crop_cn == "水稻" else "-"),
                 color=colors.get(crop_cn, "blue"),
                 linewidth=2, markersize=9, label=crop_cn + ("（14.5%水分）" if crop_cn == "水稻" else "（干重）"), alpha=0.85)
 
@@ -323,7 +465,8 @@ def plot_water_dynamics(results: List[SimulationResult], crop: str,
     """绘制水分动态图(正常灌溉对照方案)。"""
     # 使用正常灌溉对照方案(与冠层/干物质曲线数据来源一致)
     target = next(
-        (r for r in results if r.scheme_type == "正常灌溉对照"), None)
+        (r for r in results if r.scheme_type == "正常灌溉对照" or
+         (r.crop == "rice" and r.label == "常规淹水")), None)
     if target is None:
         return
 
@@ -356,14 +499,14 @@ def plot_water_dynamics(results: List[SimulationResult], crop: str,
 
 def plot_irrigation_schedule(results: List[SimulationResult], crop: str,
                                sim_year: int, savepath: str):
-    """绘制灌溉制度时序图: 对比 5 档优化方案的每日灌溉量与累积灌溉量。
+    """绘制灌溉制度时序图: 对比各灌溉方案的每日灌溉量与累积灌溉量。
 
     上子图: 每日灌溉量(柱状), 不同颜色代表不同方案
     下子图: 累积灌溉量(折线), 直观展示各方案灌水进程差异
     仅保留优化方案(水层管理/墒情控制), 不显示正常灌溉对照。
     """
     opt_res = sorted(
-        [r for r in results if r.scheme_type in ("水层调控", "水层管理", "墒情控制")],
+        [r for r in results if crop == "rice" or r.scheme_type in ("水层调控", "水层管理", "墒情控制")],
         key=lambda r: r.summary.get("累计灌溉量(mm)", 0)
     )
     if not opt_res:
@@ -444,12 +587,12 @@ def main():
     print(f"作物: {', '.join(CROP_CN[c] for c in crops)}")
     print(f"年份: {years}")
     print("方案设计:")
-    print("  水稻: 对照(官方规程上下限) + 5 档水层调控 —— 6 个方案同一套闭环机制")
+    print("  水稻: 常规淹水CF、浅湿灌溉SWI、干湿交替AWD、控制灌溉CI —— 四制度过程比较")
     print("  玉米: 对照(固定净量144mm) + 四档墒情阈值(100/75/50/25) + 雨养 + AquaCrop动态最优")
-    print("  5 档梯度(灌水量由低到高): "
+    print("  水稻四制度(不预设水量或产量排序): "
           + " → ".join(f"{sid} {lab}"
                        for sid, lab in zip(SCHEME_IDS, SCHEME_LABELS)))
-    print("最优判据: 玉米直接采用AquaCrop最优档位（最高产、同产量最少净灌水）；水稻待四个新方案")
+    print("最优判据: 玉米直接采用AquaCrop最优档位（最高产、同产量最少净灌水）；水稻四制度尚未田间率定，不输出农艺最优推荐")
     print("=" * 70)
 
     all_summaries = []

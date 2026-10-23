@@ -34,12 +34,27 @@ def build_soil(crop: str) -> Soil:
     """
     cfg = get_soil_config(crop)
     layers = cfg["layers"]
+    if crop.lower() in ("rice","paddy","水稻"):
+        import math
+        for lay in layers:
+            vals=[lay[k] for k in ("depth","PWP","FC","SAT","Ks","penetrability")]
+            if (not all(math.isfinite(v) for v in vals) or not lay["depth"]>0
+                    or not 0<=lay["PWP"]<lay["FC"]<lay["SAT"]<1
+                    or not lay["Ks"]>0 or not 0<=lay["penetrability"]<=100):
+                raise ValueError("水稻土层须满足深度/Ks>0、0≤PWP<FC<SAT<1、穿透率0—100")
     ep = get_evap_params(crop)   # 按作物获取蒸发深度与 CN
 
     # 构造 compartment 厚度 dz：以 0.1 m 为基本单元，覆盖全部土层总深
     total_depth = sum(lay["depth"] for lay in layers)
     n_comp = max(int(round(total_depth / 0.1)), 4)
-    dz = [0.1] * n_comp  # 等厚 0.1m 的 compartment
+    dz = list(cfg.get("compartments", [0.1] * n_comp))
+    if any(v<=0 for v in dz) or abs(sum(dz)-total_depth)>1e-8:
+        raise ValueError("土壤计算单元必须为正且覆盖完整剖面")
+    import numpy as np
+    boundaries=np.cumsum(dz)
+    for depth in np.cumsum([lay["depth"] for lay in layers]):
+        if not np.isclose(boundaries,depth,atol=1e-8).any():
+            raise ValueError("计算单元必须与真实土层边界对齐")
 
     # 'custom' 仅创建 profile 骨架，再逐层 add_layer
     soil = Soil(

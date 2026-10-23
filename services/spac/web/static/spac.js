@@ -78,7 +78,7 @@ async function loadAgronomySettings() {
       <div class="field"><label for="${crop}SoilType">土壤类型</label>
         <select id="${crop}SoilType"></select></div>
       <details class="soil-editor"><summary>展开并修改土壤参数</summary>
-        <div class="hint">含水率单位 m³/m³，须满足 PWP &lt; FC &lt; SAT。土层厚度按0.1m递增。</div>
+        <div class="hint">含水率单位 m³/m³，须满足 PWP &lt; FC &lt; SAT。水稻土层厚度按0.01m递增，玉米按0.1m递增。</div>
         <div id="${crop}SoilLayers"></div>
         <div class="field"><label for="${crop}SoilCN">径流曲线数 CN</label>
           <input id="${crop}SoilCN" type="number" min="1" max="100" step="0.1" required>
@@ -135,7 +135,7 @@ function renderSoilEditor(crop, saved = null) {
       const id = `${crop}Soil${i}${key}`;
       const title = el('label', '', label); title.htmlFor = id;
       const input = document.createElement('input');
-      Object.assign(input, { id, type: 'number', min: String(min), max: String(max), step: String(step), required: true, value: layer[key] });
+      Object.assign(input, { id, type: 'number', min: String(key === "depth" && crop === "rice" ? .01 : min), max: String(max), step: String(key === "depth" && crop === "rice" ? .01 : step), required: true, value: layer[key] });
       input.dataset.soilKey = key;
       field.append(title, input); grid.appendChild(field);
     });
@@ -203,7 +203,11 @@ function syncCropSections() {
 function agronomyRunOptions(crop) {
   if (!agronomyConfig) throw new Error('种植与土壤配置尚未加载成功，请刷新页面');
   const selected = crop === 'both' ? ['rice', 'corn'] : [crop];
-  const payload = {};
+  const payload = {yield_target_pct: Number($('#yieldTarget').value), rice_management: {
+    control_depth_m: Number($('#riceControlDepth').value), stop_days: Number($('#riceStopDays').value),
+    regreen_days: Number($('#riceRegreenDays').value), tillering_peak_dap: Number($('#riceTilleringPeak').value),
+    drying_start_dap: Number($('#riceDryingStart').value), drying_days: Number($('#riceDryingDays').value), cold_events: []
+  }};
   selected.forEach(c => {
     const section = $('#' + c + 'Agronomy');
     const invalid = Array.from(section.querySelectorAll('input')).find(input => !input.checkValidity());
@@ -423,7 +427,8 @@ function clearResults() {
 
 function renderResult(jobId, res) {
   lastResult = res;
-  const directModel = ['2026-10-23-calendar-v9', '2026-10-23-agronomy-v8', '2026-10-23-corn-direct-v7'].includes(res.model_revision);
+  const riceV6 = res.model_revision === '2026-10-23-rice-audit-v6';
+  const directModel = ['2026-10-23-rice-audit-v6', '2026-10-23-calendar-v9', '2026-10-23-agronomy-v8', '2026-10-23-corn-direct-v7'].includes(res.model_revision);
   const moistureModel = directModel || res.model_revision === '2026-10-23-corn-moisture-v6';
   const currentModel = moistureModel || res.model_revision === '2026-10-22-corn-water-v5';
   const currentRice = currentModel || res.model_revision === '2026-10-22-rice-v4';
@@ -445,6 +450,13 @@ function renderResult(jobId, res) {
     });
     syncCropSections();
   }
+  if (riceV6) {
+    $('#yieldTarget').value = String(Math.round((res.yield_target || .95)*100));
+    const mg = res.rice_management || {};
+    for (const [id, key] of [['riceControlDepth','control_depth_m'], ['riceStopDays','stop_days'], ['riceRegreenDays','regreen_days'], ['riceTilleringPeak','tillering_peak_dap'], ['riceDryingStart','drying_start_dap'], ['riceDryingDays','drying_days']]) {
+      if (mg[key] != null) $('#' + id).value = String(mg[key]);
+    }
+  }
   const agronomyResult = $('#agronomyResult');
   agronomyResult.textContent = Object.entries(res.agronomy_settings || {}).map(([crop, settings]) =>
     `${crop === 'rice' ? '水稻移栽' : '玉米播种'}：${settings.planting_date_iso}；收获：${settings.harvest_date}；${soilLabel(settings)}`).join(' ｜ ');
@@ -458,8 +470,8 @@ function renderResult(jobId, res) {
   }
   if (res.kpi && res.kpi.length) {
     res.kpi.forEach(k => {
-      kpis.push({ k: `${k['作物']} · ${directModel ? '最优' : '历史候选'}${netWater ? '净' : ''}灌水`, v: fmtNum(k['累计灌溉量(mm)'], 1), unit: 'mm', kind: 'accent' });
-      kpis.push({ k: `${k['作物']} · ${directModel ? '最佳灌溉方式' : '历史候选'}`, v: k['最优方案'], unit: '' });
+      kpis.push({ k: `${k['作物']} · ${riceV6 && k['作物'] === '水稻' ? '候选' : directModel ? '最优' : '历史候选'}${netWater ? '净' : ''}灌水`, v: fmtNum(k['累计灌溉量(mm)'], 1), unit: 'mm', kind: 'accent' });
+      kpis.push({ k: `${k['作物']} · ${riceV6 && k['作物'] === '水稻' ? '节水候选' : directModel ? '最佳灌溉方式' : '历史候选'}`, v: k['最优方案'], unit: '' });
       if (currentModel && !directModel) {
         kpis.push({ k: `${k['作物']} · 最高产方案`, v: k['最高产方案'], unit: '' });
         kpis.push({ k: `${k['作物']} · 较峰值减产`, v: fmtNum(k['较峰值减产(%)'], 2), unit: '%' });
@@ -509,9 +521,9 @@ function renderResult(jobId, res) {
     });
   }
   renderTable($('#summaryBody'), tableForDisplay(res.summary), { highlight: hl });
-  $('#optimalTitle').textContent = directModel ? '最佳灌溉方式' : '历史候选结果';
-  $('#optimalCriterion').textContent = directModel ? '玉米最优方案' : '历史结果';
-  $('#summarySub').textContent = `${res.year} 年 · ${res.summary.rows.length} 个方案 · 绿色行为${directModel ? '玉米最优方案' : '历史候选'}`;
+  $('#optimalTitle').textContent = riceV6 ? '灌溉方案筛选' : directModel ? '最佳灌溉方式' : '历史候选结果';
+  $('#optimalCriterion').textContent = riceV6 ? '水稻按保产比例筛选候选；玉米保留模型最优' : directModel ? '玉米最优方案' : '历史结果';
+  $('#summarySub').textContent = `${res.year} 年 · ${res.summary.rows.length} 个方案 · 绿色行为${riceV6 ? '计算候选或玉米最优' : directModel ? '玉米最优方案' : '历史候选'}`;
   const evidenceBox = $('#evidenceBody');
   evidenceBox.innerHTML = '';
   if (currentModel && res.evidence && res.evidence.rows.length) {

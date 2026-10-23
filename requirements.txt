@@ -15,4 +15,4 @@ matplotlib>=3.8
 openpyxl>=3.1          # 导出模型原始 Excel
 
 # ---------- 作物生长模型引擎 ----------
-aquacrop>=3.0
+aquacrop==3.1.0

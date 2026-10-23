@@ -1,19 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Soil profile priors for the coupled water/crop calculation.
+"""Water-rice candidate V2 and unchanged dryland configuration.
 
-SAT/FC/PWP are SoilGrids estimates, not on-site observations. Ksat is an
-effective saturated-conductivity parameter in this simplified three-layer
-profile, not an observed daily percolation series. The solver also derives
-the drainage characteristic tau from Ksat. Groundwater contribution is absent.
-
-The source workbook contains 50%/75% water-year REFERENCE quotas, not annual
-2024/2025 observations. No local irrigation records were supplied. Consequently
-2.8 mm/day is retained as an uncertain prior, not identified by fitting those
-quotas to individual years. External percolation data are contextual evidence,
-not independent validation; initial deep-soil storage changes seasonal drainage.
-Earlier selection records are preserved in the dated source backup/audit report.
+Thin plough-pan geometry: 0.20--0.28 m; source is regional evidence,
+not a measured Wutonghe profile. SAT/FC/PWP retain uncalibrated grid priors.
+Nominal pan Ksat=2.8 mm/day is NOT a measured or calibrated daily leakage.
+Below-pan Ksat=8 mm/day is a separate unmeasured structural scenario.
+Keep PADDY_SOIL_LEGACY for controlled comparisons; validate against field data
+before interpreting any candidate as an operational irrigation prescription.
 """
 from __future__ import annotations
+from copy import deepcopy
 
 # --------------------------------------------------------------------------- #
 #  内核内置土壤预设（soil_type 字符串）
@@ -27,7 +23,7 @@ SOIL_PRESET_DRYLAND = "custom"    # 旱田：自定义（按层给实测值）
 #  采样点: 130.788°E, 47.212°N
 #  质地: 砂质粘壤土(耕作层) → 壤土(犁底层/心土层)
 # --------------------------------------------------------------------------- #
-PADDY_SOIL = {
+PADDY_SOIL_LEGACY = {
     "name": "梧桐河水稻土 [格网估计/等效水力参数待验证]",
     "preset": SOIL_PRESET_PADDY,
     "dz": [0.30, 0.30, 0.40],
@@ -40,6 +36,28 @@ PADDY_SOIL = {
         {"depth": 0.40, "SAT": 0.506, "FC": 0.310, "PWP": 0.159, "Ks": 50.0, "penetrability": 70},
     ],
 }
+
+# V2 explicit thin-pan candidate. Hydraulic values remain priors, not measurements.
+# Regional geometry reference: DOI 10.13287/j.1001-9332.201812.005.
+# Keep 2.8 as an uncalibrated nominal Ksat; compare 0.5/1.0/2.8, never tune to a desired saving.
+PADDY_SOIL = {
+    "name": "梧桐河水稻薄犁底层候选V2 [未率定]",
+    "version": "rice-soil-v2-20261023",
+    "preset": "custom",
+    "dz": [.20, .08, .32, .40],
+    "compartments": [.05]*4 + [.04]*2 + [.02, .10, .10, .10] + [.10]*4,
+    "pan_bottom_m": .28,
+    "puddling_sat_depth_m": .20,
+    "layers": [
+        {"depth": .20, "SAT": .579, "FC": .367, "PWP": .153, "Ks": 8., "penetrability": 100},
+        {"depth": .08, "SAT": .509, "FC": .320, "PWP": .159, "Ks": 2.8, "penetrability": 40},
+        {"depth": .32, "SAT": .509, "FC": .320, "PWP": .159, "Ks": 8., "penetrability": 70},
+        {"depth": .40, "SAT": .506, "FC": .310, "PWP": .159, "Ks": 50., "penetrability": 70},
+    ],
+}
+# Below-pan Ks=8 and penetrability=70 are explicit engineering priors; not SoilGrids observations.
+PADDY_SOIL_LEGACY.update(version="rice-soil-v1-legacy", pan_bottom_m=.60,
+                         puddling_sat_depth_m=.60)
 
 # 玉米剖面沿用本次修改前配置，未重新率定。
 DRYLAND_SOIL = {

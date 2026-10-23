@@ -138,6 +138,23 @@ class AgronomyReq(BaseModel):
     soil_cn: float | None = None
 
 
+class RiceColdEvent(BaseModel):
+    start: str
+    end: str
+    lower_mm: float = Field(170., ge=170., lt=200.)
+    target_mm: float = Field(200., gt=170., le=200.)
+
+
+class RiceManagement(BaseModel):
+    control_depth_m: float = Field(.20, ge=.05, le=1., allow_inf_nan=False)
+    stop_days: int = Field(7, ge=7, le=15)
+    regreen_days: int = Field(17, ge=1, le=40)
+    tillering_peak_dap: int = Field(33, ge=2, le=70)
+    drying_start_dap: int = Field(48, ge=3, le=75)
+    drying_days: int = Field(7, ge=5, le=7)
+    cold_events: list[RiceColdEvent] = Field(default_factory=list)
+
+
 class RunReq(BaseModel):
     model_config = {"extra": "forbid"}
     year: int = Field(..., description="模拟年份")
@@ -150,6 +167,8 @@ class RunReq(BaseModel):
     corn_application_efficiency_pct: float = Field(90.,gt=0.,le=100.)
     rice_agronomy: AgronomyReq | None = None
     corn_agronomy: AgronomyReq | None = None
+    yield_target_pct: float = Field(95., ge=90., le=100., allow_inf_nan=False)
+    rice_management: RiceManagement = Field(default_factory=RiceManagement)
 
 
 @app.post(f"{BASE_PATH}/api/run")
@@ -162,7 +181,7 @@ def run(req: RunReq, request: Request):
     agronomy = {c: value.model_dump(exclude_none=True) for c in crops
                 if (value := getattr(req, c + "_agronomy")) is not None}
     try:
-        engine.validate_run_settings(crops,options)
+        engine.validate_run_settings(crops,options,req.yield_target_pct/100.,req.rice_management.model_dump())
         engine.validate_agronomy_settings(crops, req.year, agronomy)
     except ValueError as e:
         raise HTTPException(400,str(e)) from e
@@ -183,7 +202,8 @@ def run(req: RunReq, request: Request):
         job.progress = f"{req.year} 年模拟中"
         return engine.run(crops, req.year, job.out_dir, owner=who,
                           progress=lambda msg: setattr(job, "progress", msg),
-                          irrigation_options=options, agronomy_options=agronomy)
+                          irrigation_options=options, agronomy_options=agronomy,
+                          yield_target=req.yield_target_pct/100., rice_management=req.rice_management.model_dump())
 
     job = manager.submit(title, task, params=req.model_dump(),
                          owner=who)
@@ -217,7 +237,9 @@ def capabilities():
         "utilization_profiles":UTILIZATION_PROFILES,
         "agronomy":engine.agronomy_capabilities(),
         "optimization_rule":"max_yield_then_min_irrigation",
-        "rice_optimization_status":"pending_four_schemes",
+        "rice_optimization_status":"v6_candidate_uncalibrated",
+        "rice_parameter_version":"wutonghe-rice-v6-20261023",
+        "yield_target_range_pct":[90,100],
     }
 
 

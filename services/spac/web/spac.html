@@ -89,6 +89,32 @@
             </div>
           </div>
 
+                      <details style="margin:12px 0" id="riceManagementPanel">
+              <summary>水稻阶段阈值与管理设置（候选V6）</summary>
+              <p>默认关注浅湿灌溉（SWI），以常规淹水（CF）作参照；同时计算关键期保水型AWD、CI。CF含一次晒田。四模式统一在晒田前3天停止常规建水层，仅R≤70%时限量救援；计划晒田满5日后遇救援需求可结束强排并合并为下一阶段复水，衔接前2天按入渗与目标水层限制净补水。3/5/2日为候选工程取值，尚待田间验证。下表为触发下限→补水目标；H为田面水深，R为控制层实际含水量/饱和含水量。数值尚未经梧桐河田间验证。</p>
+              <div style="overflow-x:auto"><table><thead><tr><th>阶段</th><th>CF</th><th>SWI</th><th>AWD</th><th>CI</th></tr></thead><tbody>
+                <tr><td>移栽返青</td><td colspan="4">H 10→30 mm</td></tr>
+                <tr><td>分蘖前期</td><td>H 10→40</td><td>H 0→30</td><td>R80%→H30</td><td>R80%→饱和</td></tr>
+                <tr><td>分蘖盛期</td><td>H 10→40</td><td>H 0→20</td><td>R80%→H30</td><td>R80%→饱和</td></tr>
+                <tr><td>分蘖末晒田</td><td colspan="4">计划晒田5–7个历日；R≤70%按入渗预算分次救援（并非保证连续无水）</td></tr>
+                <tr><td>拔节孕穗</td><td>H 30→50</td><td>H 20→40</td><td>R85%→H30</td><td>R90%→饱和</td></tr>
+                <tr><td>抽穗开花保护</td><td colspan="4">H 30→50 mm；窗口随作物开花参数及已发生的物候延迟确定</td></tr>
+                <tr><td>灌浆乳熟</td><td>H 10→40</td><td>H 0→20</td><td>R80%→H20</td><td>R80%→饱和</td></tr>
+                <tr><td>成熟前</td><td colspan="4">停灌自然落干，配置成熟日排明水</td></tr>
+              </tbody></table></div>
+              <p>土壤采用薄犁底层候选：0–20cm耕层、20–28cm犁底层、28–60cm心土、60–100cm底土。移栽时仅上部20cm设为饱和，下部FC；犁底层Ksat名义值2.8mm/d，尚未经当地率定。救援复水期间暂缓强排，允许水层继续入渗。控制层补至饱和不等于保证当日无积水；请查看结果中的暂态积水及目标未达记录。普通阶段允许蓄雨至50 mm。CI允许阶段遗留水自然消退，不再超过补水目标5天就排空；仅明确晒田、超过允许水深或显式设置的独立耐淹时限触发排水。CI普通饱和度控制阶段按入渗预算分日复水至99%SAT容差，扣除已有水层和当天模拟降雨；可能多日未达目标，请查看分次复水记录。晒田救援按入渗预算分次补水；返青及开花期根据ET0与表层入渗上限提前触发补水，降低日内落干风险。AWD同样允许阶段遗留水自然消退，不再因超复水目标5天强排；仍在无明水且达到R下限时复水至20/30 mm，保留50 mm蓄雨上限。CF、SWI普通阶段保留原排水时限，阶段切换时重新计数；停灌期自然落干。200 mm田埂高度不是常规水层目标。</p>
+              <label>控制层深度 <select id="riceControlDepth"><option value="0.2">0–20 cm</option><option value="0.3">0–30 cm（敏感性比较）</option></select></label>
+              <label>成熟前停灌 <select id="riceStopDays"><option value="7">7天</option><option value="15">15天（保水田块）</option></select></label>
+              <label>返青期天数 <input id="riceRegreenDays" type="number" value="17" min="1" max="40"></label>
+              <label>分蘖盛期起始DAP <input id="riceTilleringPeak" type="number" value="33" min="2" max="70"></label>
+              <label>晒田起始DAP <input id="riceDryingStart" type="number" value="48" min="3" max="75"></label>
+              <label>晒田天数 <input id="riceDryingDays" type="number" value="7" min="5" max="7"></label>
+              <p>结果用于未率定情景比较，不能直接作为田间灌溉指令。耗水和水分利用效率按移栽至模拟终止核算，模拟可能因冠层衰老提前终止；不能视作已验证的成熟或收获日期。DAP以移栽当日为第1天。晒田日期应结合苗情调整；拔节孕穗管理自晒田结束后开始。以上设置对四模式共同生效。防冷深水事件可通过API人工配置，模型不据此计算水温防冷增产。</p>
+              <div class="field"><label for="yieldTarget">水稻候选保产比例</label>
+                <select id="yieldTarget"><option value="95">95%峰值</option><option value="99">99%峰值</option><option value="100">100%峰值</option></select>
+              </div>
+            </details>
+
           <div id="agronomySettings" aria-live="polite"><div class="hint">正在加载种植日期与土壤预设…</div></div>
           <div class="actions">
             <button class="btn btn-primary btn-block" id="runBtn">开始模拟</button>

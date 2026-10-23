@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Initial water and net puddling storage share the same profile boundary.
 
-Rice transplanting target: 0--0.6 m SAT, 0.6--1 m FC, plus 30 mm ponding.
+Rice candidate V2: puddled 0--0.2 m SAT; deeper layers FC, plus 30 mm ponding.
 This is an explicit unmeasured scenario, not proof of the local saturation depth.
 This module supplies the storage increment from an FC reference. The complete
 preparation water budget is evaluated separately by modules.puddling, including
@@ -14,7 +14,7 @@ from modules.engine_core import InitialWaterContent
 DEFAULT_MOISTURE = {"rice": "PROFILE", "corn": "FC"}
 LEGACY_MOISTURE = {"rice": "FC", "corn": "FC"}
 PADDY_INIT_WATER_LAYER = 30.0
-PUDDLING_SAT_DEPTH = 0.60
+PUDDLING_SAT_DEPTH = 0.20
 
 
 def _crop_key(crop: str) -> str:
@@ -30,7 +30,7 @@ def initial_layer_water(crop: str, moisture=None):
     values, top = [], 0.0
     for lay in get_soil_config(crop)["layers"]:
         if mode == "PROFILE" and key == "rice":
-            overlap = max(0., min(top + lay["depth"], PUDDLING_SAT_DEPTH) - top)
+            overlap = max(0., min(top + lay["depth"], get_soil_config(crop).get("puddling_sat_depth_m", PUDDLING_SAT_DEPTH)) - top)
             value = lay["FC"] + (lay["SAT"] - lay["FC"]) * overlap / lay["depth"]
         elif mode in ("SAT", "FC", "WP"):
             value = lay["PWP"] if mode == "WP" else lay[mode]

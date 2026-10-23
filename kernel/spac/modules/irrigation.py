@@ -40,28 +40,16 @@ from typing import Dict, List, Tuple, Optional, Union
 
 import pandas as pd
 from modules.engine_core import IrrigationManagement, FieldMngt
-from modules.paddy_control import bands_for, bands_for_ck, describe_bands, CK_BANDS
+from modules.paddy_control import bands_for, bands_for_ck, describe_bands, CK_BANDS, RICE_LABELS, RICE_IDS
 
 
 # =========================================================================== #
 #  方案标签与类型常量
 # =========================================================================== #
 
-# 水稻 5 档方案中文标签；玉米另用四阶段阈值标签。
-# 命名口径("水量档位型"): 直接按灌水量高低命名, 不混用"胁迫/灌溉"两套词;
-#   低水量侧 = 水分胁迫重, 高水量侧 = 过量灌溉。
-# 2026-10-21 由 7 档压到 5 档: 水稻 7 档实测 L4–L7 产量完全相同(多灌 319mm 换 0 产量),
-#   只有 4 个有效信息点; 玉米 7 档高端同样平台化。5 档让相邻档灌水量与产量都错开,
-#   避免把重复处理当独立样本做统计。
-SCHEME_LABELS = [
-    "雨养型", "低水量", "中低水量", "适宜水量", "较高水量",
-]
-
-# 与 SCHEME_LABELS 一一对应的稳定英文档位 ID
-# 仅用于输出文件名与内部标识, 与中文显示名解耦 ——
-# 以后再调整显示名, 不会影响已归档的输出文件名。
-# 注: 历史上的 L6/L7 已停用(其输出文件仍保留在归档目录, 名称不受影响)。
-SCHEME_IDS = ["L1", "L2", "L3", "L4", "L5"]
+# Four distinct rice regimes. Old L1--L5 remain archived in paddy_control.
+SCHEME_LABELS = list(RICE_LABELS)
+SCHEME_IDS = list(RICE_IDS)
 
 # 正常灌溉对照标签
 NORMAL_LABEL = "正常灌溉对照"
@@ -75,6 +63,8 @@ def scheme_id(label: str) -> str:
 
     未登记的标签原样返回, 保证向后兼容。
     """
+    if label in RICE_LABELS:
+        return RICE_IDS[RICE_LABELS.index(label)]
     if label == NORMAL_LABEL:
         return NORMAL_ID
     if label.startswith("最优（"):
@@ -310,7 +300,7 @@ SchemeTuple = Tuple[str, Optional[List[int]], str, Optional[List[int]], str]
 def get_smt_schemes(crop: str) -> List[SchemeTuple]:
     """返回作物的全部灌溉方案列表。
 
-    水稻: 正常灌溉对照(官方规程上下限) + 5 档水层调控方案(阶段水层上下限)
+    水稻: 常规淹水CF、浅湿SWI、干湿交替AWD、控制灌溉CI共四制度
     玉米: 固定净定额144mm对照 + 四档固定阈值 + 雨养 + 动态最优
 
     Returns
@@ -319,19 +309,9 @@ def get_smt_schemes(crop: str) -> List[SchemeTuple]:
     """
     c = crop.lower()
     if c in ("rice", "paddy", "水稻"):
-        # 水稻: 正常灌溉对照 + 5 档水层调控, **全部 6 个方案走同一套闭环机制**
-        #   各档不再给"定额", 而给"各生育阶段水层上下限"(bands),
-        #   借 SchemeTuple 的 smt 槽位承载 —— 语义与玉米 SMT 阈值同理:
-        #   "括号里写明每个阶段的目标, 由模型自己算灌水量"。
-        #   2026-10-21 方案 A: CK 也由「固定日历 891mm」改为「官方规程上下限」
-        #   (见 modules/paddy_control.py::CK_BANDS), 但 scheme_type 仍标
-        #   TYPE_NORMAL —— 这样 find_optimal() 会正确地把对照排除在优化档之外。
-        schemes: List[SchemeTuple] = [
-            (NORMAL_LABEL, bands_for_ck(), "wlayer", None, TYPE_NORMAL),
-        ]
-        for label in SCHEME_LABELS:
-            schemes.append((label, bands_for(label), "wlayer", None, TYPE_WLAYER))
-        return schemes
+        return [(label, bands_for(label), "wlayer", None,
+                 TYPE_NORMAL if i == 0 else TYPE_WLAYER)
+                for i, label in enumerate(RICE_LABELS)]
 
     if c in ("corn", "maize", "玉米"):
         key = "corn"
@@ -392,7 +372,7 @@ def build_irrigation(crop: str, smt: Optional[List[int]] = None,
                 irrigation_method=3, Schedule=schedule,
                 MaxIrr=100, WetSurf=100, AppEff=efficiency,
             )
-        if mode == "wlayer":
+        if mode in ("wlayer", "rice_regime"):
             # 水层闭环调控: 日历全 0, 每天由 PaddyLayerController 回填当日定额
             #   MaxIrr 放到 300 —— 上限 190mm 需毛量 190/0.9≈211mm, 不能被截断
             from config.wutonghe_config import get_sim_bounds

@@ -158,8 +158,9 @@ def validate_settings(crops, year, options=None):
                 raise ValueError("土壤含水率须满足 0 < PWP < FC < SAT < 1（m³/m³）")
             if not 0 < layer["Ks"] <= 10000 or not 0 < layer["penetrability"] <= 100:
                 raise ValueError("Ks须在(0,10000] mm/d，根系穿透率须在(0,100]%")
-            if not 0.1 <= layer["depth"] <= 3 or abs(layer["depth"] * 10 - round(layer["depth"] * 10)) > 1e-7:
-                raise ValueError("每层厚度须为0.1m的整数倍，范围0.1至3m")
+            grid = 100 if crop == "rice" else 10
+            if not 1/grid <= layer["depth"] <= 3 or abs(layer["depth"] * grid - round(layer["depth"] * grid)) > 1e-7:
+                raise ValueError("水稻层厚须按0.01m递增，玉米按0.1m递增；最大3m")
         depth = sum(layer["depth"] for layer in layers)
         if depth + 1e-8 < get_crop_params(crop)["Zmax"] + 0.1 or depth > 3.0 + 1e-8:
             raise ValueError("土壤总深度须覆盖最大根深及0.1m底边界，且不超过3m")
@@ -167,7 +168,17 @@ def validate_settings(crops, year, options=None):
             raise ValueError("径流曲线数CN须在1至100之间")
         modified = cfg["layers"] != catalog[key]["layers"] or cfg["cn"] != catalog[key]["cn"]
         cfg["name"] += "（用户修改）" if modified else ""
-        cfg["dz"] = [0.1] * round(depth * 10)
+        if crop == "rice":
+            cfg["dz"] = [layer["depth"] for layer in layers]
+            if layers != catalog[key]["layers"] or "compartments" not in cfg:
+                # Split within each layer so no cell crosses a physical boundary.
+                cells = []
+                for layer in layers:
+                    n = max(1, math.ceil(layer["depth"] / .1 - 1e-9))
+                    cells.extend([layer["depth"] / n] * n)
+                cfg["compartments"] = cells
+        else:
+            cfg["dz"] = [0.1] * round(depth * 10)
         result[crop] = dict(planting_date=planted.strftime("%m/%d"),
                             planting_date_iso=planted.isoformat(), harvest_date=end.isoformat(),
                             calendar_stages=allocate_stages(crop, planted, end),

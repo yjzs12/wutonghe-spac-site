@@ -65,6 +65,7 @@ class SimulationConfig:
     weather_csv: Optional[str] = None   # 实测气象 CSV 路径（可选）
     initial_moisture: Optional[str] = None
     application_efficiency_pct: float = 90.
+    rice_management: Optional[dict] = None
 
     def __post_init__(self):
         # 若指定了 sim_year，则按年份覆盖 sim_start/sim_end
@@ -90,6 +91,7 @@ class SimulationResult:
     raw_water_storage: Optional[pd.DataFrame] = None
     raw_final_stats: Optional[pd.DataFrame] = None
     puddling_daily: Optional[pd.DataFrame] = None
+    management_daily: Optional[pd.DataFrame] = None
 
     def save_csv(self, path: str) -> None:
         self.daily.to_csv(path, index=False, encoding="utf-8-sig")
@@ -104,6 +106,8 @@ class SimulationResult:
           final_stats  : 季末汇总(收获日期/干鲜产量/产量潜力/灌溉量)
         """
         with pd.ExcelWriter(path, engine="openpyxl") as writer:
+            if self.management_daily is not None:
+                self.management_daily.to_excel(writer, sheet_name="rice_management", index=False)
             if self.raw_crop_growth is not None:
                 self.raw_crop_growth.to_excel(
                     writer, sheet_name="crop_growth", index=False)
@@ -206,11 +210,15 @@ class SPACCropModel:
         # 才被 outputs_when_model_is_finished 转为 DataFrame。
         if self.mode == "wlayer":
             from modules.paddy_control import (
-                PaddyLayerController, install, uninstall, describe_bands, protected_scheme,
+                PaddyLayerController, install, uninstall, describe_bands,
             )
             self.controller = PaddyLayerController(
                 self.smt, app_eff=self._irr.AppEff, max_irr=self._irr.MaxIrr,
-                protect_critical=protected_scheme(self.label))
+                planting_date=f"{sim_year}/{self._crop.planting_date}",
+                flowering_start_dap=int(self._crop.HIstartCD)+1,
+                flowering_days=int(self._crop.FloweringCD),
+                maturity_dap=int(self._crop.MaturityCD),
+                **(self.cfg.rice_management or {}))
             print("  水层上下限: " + describe_bands(self.smt))
             install(self.controller)
         try:
@@ -278,18 +286,14 @@ class SPACCropModel:
         actual_dz=np.asarray(self.model._param_struct.Soil.Profile.dz,dtype=float)
         if abs(actual_dz.sum()-sum(layer_depths))>1e-8:
             raise ValueError("求解器改变了土壤剖面深度，无法按原层界报告储水与土壤含水率")
-        # 每层对应的 compartment 数（每 0.1m 一个 compartment）
-        comp_per_layer = [max(int(round(d / 0.1)), 1) for d in layer_depths]
-        # 验证总数一致
-        assert sum(comp_per_layer) == n_comp, \
-            f"compartment 数不匹配: {sum(comp_per_layer)} vs {n_comp}"
-        # 按层合并（取该层内各 compartment 的平均含水率）
-        comp_start = 0
-        for layer_idx, n_in_layer in enumerate(comp_per_layer):
-            cols_in_layer = list(range(comp_start, comp_start + n_in_layer))
-            layer_th = np.average(ws_arr[:, 3 + np.array(cols_in_layer)],axis=1,weights=actual_dz[cols_in_layer])
-            daily[f"第{layer_idx+1}层土壤含水率"] = layer_th
-            comp_start += n_in_layer
+        # Map actual solver layer IDs; no assumption of 10cm cells.
+        actual_layers=np.asarray(self.model._param_struct.Soil.Profile.Layer,dtype=int)
+        for layer_idx,depth in enumerate(layer_depths,1):
+            indices=np.flatnonzero(actual_layers==layer_idx)
+            if not len(indices) or abs(actual_dz[indices].sum()-depth)>1e-8:
+                raise ValueError("求解器土层与输出层界不一致")
+            daily[f"第{layer_idx}层土壤含水率"]=np.average(
+                ws_arr[:,3+indices],axis=1,weights=actual_dz[indices])
 
         # 3) 田间水层深度 (mm)  <- water_flux 的 surface_storage 列
         #    wf_arr 列: [step, season, dap, Wr, z_gw, surface_storage, ...]
@@ -381,7 +385,10 @@ class SPACCropModel:
         # 8) 水分利用效率 (kg/m³) = 当日累积产量 / 当日累积耗水（动态变化）
         # DryYield已是截至当日的累计产量，不能再次累加。
         cum_yield = daily["籽粒产量(t/ha)"].to_numpy()
-        cum_et = np.nancumsum(daily["蒸腾蒸发量(mm)"].values)
+        et_for_wue = daily["蒸腾蒸发量(mm)"].values.copy()
+        if self.crop=="rice":
+            et_for_wue = np.where(wf_arr[:,2]>0,et_for_wue,0.)
+        cum_et = np.nancumsum(et_for_wue)
         wue = np.zeros_like(cum_yield)
         mask = cum_et > 1e-6
         wue[mask] = cum_yield[mask] * 1000.0 / (cum_et[mask] * 10.0)
@@ -397,6 +404,19 @@ class SPACCropModel:
             last_valid_idx = np.where(has_crop.values)[0][-1]
             daily = daily.iloc[:last_valid_idx + 1].reset_index(drop=True)
 
+        if self.controller is not None:
+            management=self.controller.to_frame().set_index("日期")
+            keys=daily["模拟日期"].dt.strftime("%Y-%m-%d")
+            for col in ("阶段","阈值类型","下限","上限","控制层饱和度","控制层饱和度_后",
+                        "犁底层底通量_mm","剖面底深层渗漏_mm","犁底层饱和度_后","救援复水保留",
+                        "管理排水_mm","补水后目标未达","暂态积水","控制期有明水","限额截断",
+                        "CI分次复水","当日补水入渗预算_mm","分次延后净水量_mm","管理排水原因",
+                        "独立耐淹连续天数","最终排水上限_mm","晒田前过渡","实际晒田管理",
+                        "提前结束晒田","晒田已结束","复水衔接","衔接状态",
+                        "有效触发下限","晒田历日","晒田无明水晨间","晒田救援分次"):
+                if col not in management.columns:
+                    continue
+                daily[col]=keys.map(management[col])
         # 汇总
         summary = self._summarize(daily)
         sim_year = self.cfg.sim_year if self.cfg.sim_year is not None else SIM_YEAR
@@ -410,6 +430,7 @@ class SPACCropModel:
             raw_water_storage=raw_ws if isinstance(raw_ws, pd.DataFrame) else None,
             raw_final_stats=raw_fs if isinstance(raw_fs, pd.DataFrame) else None,
             puddling_daily=prep,
+            management_daily=self.controller.to_frame() if self.controller else None,
         )
 
     def _summarize(self, daily: pd.DataFrame) -> Dict[str, float]:
@@ -433,13 +454,32 @@ class SPACCropModel:
         s["补充毛灌溉量(mm)"] = float(np.nansum(daily["每日毛灌溉量(mm)"]))
         s["累计毛灌溉量估算(mm)"] = float(np.nansum(daily["每日总毛灌溉量估算(mm)"]))
         s["田间灌水效率(%)"] = float(self._irr.AppEff)
-        from modules.paddy_control import critical_water_rule,protected_scheme
-        if self.crop=="rice":
-            critical=daily["模拟日期"].map(lambda value: critical_water_rule(value) is not None)
-            failures=int((critical & daily["田间水层深度(mm)"].le(.5)).sum())
+        if self.crop=="rice" and self.controller is not None:
+            management=self.controller.to_frame()
+            critical=management["关键期"]
+            failures=int((critical & management["田面水层_后"].le(.5)).sum())
+            dates=daily["模拟日期"].dt.strftime("%Y-%m-%d")
+            active_dates=set(management.loc[management["阶段序号"].ge(0),"日期"])
+            active=dates.isin(active_dates)
+            s["全模拟时段蒸腾蒸发量(mm)"]=s["全季蒸腾蒸发量(mm)"]
+            s["生育期蒸腾蒸发量(mm)"]=float(daily.loc[active,"蒸腾蒸发量(mm)"].sum())
+            s["全季蒸腾蒸发量(mm)"]=s["生育期蒸腾蒸发量(mm)"]
+            s["模型冠层衰老终止"]=int(self.model._init_cond.crop_dead)
+            s["模型生理成熟终止"]=int(self.model._init_cond.crop_mature)
+            s["模拟生育天数"]=int(active.sum())
+            s["配置成熟日数"]=self.controller.maturity_dap
+            s["现场验证通过"]=0
             s["关键期无明水天数"]=failures
-            s["关键期保护方案"]=int(protected_scheme(self.label))
-            s["推荐候选"]=int(protected_scheme(self.label) and failures==0)
+            s["关键期保护方案"]=int(getattr(self.controller,"protect_critical",True))
+            s["推荐候选"]=int(failures==0)
+            s["控制层深度(m)"]=self.controller.control_depth_m
+            s["犁底层底累计通量(mm)"]=float(management.loc[management["阶段序号"].ge(0),"犁底层底通量_mm"].sum())
+            s["生育期深层渗漏(mm)"]=float(management.loc[management["阶段序号"].ge(0),"剖面底深层渗漏_mm"].sum())
+            s["管理排水量(mm)"]=float(management["管理排水_mm"].sum())
+            s["补水后目标未达天数"]=int(management["补水后目标未达"].sum())
+            s["CI分次复水天数"]=int(management["CI分次复水"].sum())
+            s["暂态积水天数"]=int(management["暂态积水"].sum())
+            s["控制期有明水天数"]=int(management["控制期有明水"].sum())
         else:
             s["关键期无明水天数"]=0
             s["关键期保护方案"]=0
@@ -455,7 +495,8 @@ def run_simulation(crop: str, label: str, smt: Optional[list] = None,
                    scheme_type: str = "",
                    sim_year: Optional[int] = None,
                    weather_csv: Optional[str] = None,
-                   application_efficiency_pct: float = 90.) -> SimulationResult:
+                   application_efficiency_pct: float = 90.,
+                   rice_management: Optional[dict] = None) -> SimulationResult:
     """运行单次模拟。
 
     Parameters
@@ -472,7 +513,8 @@ def run_simulation(crop: str, label: str, smt: Optional[list] = None,
     cfg = SimulationConfig(crop=crop, label=label, smt=smt, mode=mode,
                            depths=depths, scheme_type=scheme_type,
                            sim_year=sim_year, weather_csv=weather_csv,
-                           application_efficiency_pct=application_efficiency_pct)
+                           application_efficiency_pct=application_efficiency_pct,
+                            rice_management=rice_management)
     m = SPACCropModel(cfg)
     m.prepare_inputs().run()
     return m.collect_outputs()

@@ -16,6 +16,7 @@ from config.soil_params import get_soil_config
 
 PUDDLING_DAYS = 5
 OPEN_WATER_EVAP_FACTOR = 1.05
+PUDDLING_LEAKAGE_PRIOR_MM_DAY = 2.8  # 独立的泡田水量预算先验，不是土层Ksat
 
 
 def puddling_balance(weather, planting_date, moisture=None, days=PUDDLING_DAYS,
@@ -41,7 +42,7 @@ def puddling_balance(weather, planting_date, moisture=None, days=PUDDLING_DAYS,
     if target<0:
         raise ValueError("泡田前储水高于目标，需显式排水情景，不能以负灌溉处理")
     # Effective leakage is uncertain, not an independent observation of Ksat.
-    leak=float(layers[min(1, len(layers)-1)]["Ks"] if percolation_mm_day is None else percolation_mm_day)
+    leak=float(PUDDLING_LEAKAGE_PRIOR_MM_DAY if percolation_mm_day is None else percolation_mm_day)
     if not np.isfinite(leak) or leak<0:
         raise ValueError("泡田渗漏强度无效")
     storage=0.
