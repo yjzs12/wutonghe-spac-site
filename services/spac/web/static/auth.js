@@ -15,6 +15,117 @@
   const SITE = (document.title || '').split('·').pop().trim() || '梧桐河灌区模型平台';
 
   let mask = null, capId = '', busy = false, everIn = false;
+  const HISTORY_KEY = 'wth.login-accounts.v1:' + (BASE || '/');
+  let accountHistory = [], historyIndex = -1, historyMatches = [];
+
+  function savedAccounts() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+      if (Array.isArray(stored)) {
+        accountHistory = [...new Set(stored.filter(v => typeof v === 'string' && v.trim()).map(v => v.trim()))];
+      }
+    } catch (e) { /* 存储受限或记录损坏时，仍可正常登录 */ }
+    return accountHistory;
+  }
+
+  function storeAccounts(accounts) {
+    accountHistory = accounts;
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(accounts)); } catch (e) { /* 保留本页记录 */ }
+  }
+
+  function rememberAccount(username) {
+    if (typeof username !== 'string' || !username.trim()) return;
+    const name = username.trim();
+    storeAccounts([name, ...savedAccounts().filter(v => v !== name)]);
+  }
+
+  function closeAccountHistory() {
+    const panel = document.getElementById('authHistoryPanel');
+    const input = document.getElementById('authUser');
+    if (panel) panel.hidden = true;
+    if (input) {
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant');
+    }
+    historyIndex = -1;
+    historyMatches = [];
+  }
+
+  function chooseAccount(username) {
+    document.getElementById('authUser').value = username;
+    // 切换账号时清空未提交的凭据，避免带上另一个账号的密码。
+    document.getElementById('authPwd').value = '';
+    document.getElementById('authCode').value = '';
+    closeAccountHistory();
+    document.getElementById('authPwd').focus();
+  }
+
+  function highlightAccount(index) {
+    historyIndex = index;
+    const options = document.querySelectorAll('#authUserHistory [role="option"]');
+    options.forEach((option, i) => option.setAttribute('aria-selected', String(i === index)));
+    const input = document.getElementById('authUser');
+    if (index >= 0 && options[index]) {
+      input.setAttribute('aria-activedescendant', options[index].id);
+      options[index].scrollIntoView({ block: 'nearest' });
+    } else input.removeAttribute('aria-activedescendant');
+  }
+
+  function showAccountHistory(filter = '') {
+    const panel = document.getElementById('authHistoryPanel');
+    const list = document.getElementById('authUserHistory');
+    const input = document.getElementById('authUser');
+    if (!panel || !savedAccounts().length) { closeAccountHistory(); return; }
+    historyMatches = savedAccounts().filter(v => v.toLowerCase().includes(filter.toLowerCase()));
+    list.replaceChildren();
+    historyMatches.forEach((username, i) => {
+      const option = document.createElement('button');
+      option.type = 'button'; option.className = 'auth-history-option';
+      option.id = 'authHistoryOption' + i; option.tabIndex = -1;
+      option.setAttribute('role', 'option'); option.setAttribute('aria-selected', 'false');
+      option.textContent = username;
+      option.addEventListener('mousedown', e => e.preventDefault());
+      option.addEventListener('click', () => chooseAccount(username));
+      list.appendChild(option);
+    });
+    document.getElementById('authHistoryEmpty').hidden = historyMatches.length > 0;
+    panel.hidden = false; input.setAttribute('aria-expanded', 'true');
+    highlightAccount(-1);
+  }
+
+  function wireAccountHistory(el) {
+    const input = el.querySelector('#authUser');
+    const account = el.querySelector('.auth-account');
+    input.addEventListener('focus', () => showAccountHistory());
+    input.addEventListener('click', () => showAccountHistory());
+    input.addEventListener('input', () => showAccountHistory(input.value));
+    input.addEventListener('keydown', e => {
+      const open = !el.querySelector('#authHistoryPanel').hidden;
+      if (e.key === 'Escape') { closeAccountHistory(); return; }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!open) showAccountHistory(input.value);
+        if (historyMatches.length) {
+          const step = e.key === 'ArrowDown' ? 1 : -1;
+          highlightAccount(historyIndex < 0 ? (step > 0 ? 0 : historyMatches.length - 1) : (historyIndex + step + historyMatches.length) % historyMatches.length);
+        }
+      } else if (e.key === 'Enter' && open && historyIndex >= 0) {
+        e.preventDefault(); chooseAccount(historyMatches[historyIndex]);
+      }
+    });
+    account.addEventListener('focusout', () => setTimeout(() => {
+      if (!account.contains(document.activeElement)) closeAccountHistory();
+    }, 0));
+    el.addEventListener('click', e => { if (!account.contains(e.target)) closeAccountHistory(); });
+    el.querySelector('#authForgetAccounts').addEventListener('click', () => {
+      storeAccounts([]); closeAccountHistory(); input.focus();
+    });
+    window.addEventListener('storage', e => {
+      if (e.key === HISTORY_KEY || e.key === null) {
+        accountHistory = []; savedAccounts(); closeAccountHistory();
+      }
+    });
+  }
 
   function ui(html) {
     const d = document.createElement('div');
@@ -33,9 +144,20 @@
               <div class="auth-sub">${SITE}</div>
             </div>
           </div>
-          <label class="auth-field">账号
-            <input id="authUser" name="username" autocomplete="username" spellcheck="false" required>
-          </label>
+          <div class="auth-field auth-account">
+            <label for="authUser">账号</label>
+            <input id="authUser" name="username" autocomplete="username" spellcheck="false" required
+                   role="combobox" aria-expanded="false" aria-controls="authUserHistory"
+                   aria-autocomplete="list" aria-haspopup="listbox">
+            <div class="auth-history-panel" id="authHistoryPanel" hidden>
+              <div class="auth-history-head">
+                <span>此浏览器登录过的账号</span>
+                <button id="authForgetAccounts" type="button">清除记录</button>
+              </div>
+              <div id="authUserHistory" role="listbox" aria-label="已登录账号"></div>
+              <div class="auth-history-empty" id="authHistoryEmpty" hidden>没有匹配的账号</div>
+            </div>
+          </div>
           <label class="auth-field">密码
             <span class="auth-pwd">
               <input id="authPwd" name="password" type="password" autocomplete="current-password" required>
@@ -65,10 +187,11 @@
           </label>
           <div class="auth-err" id="authErr"></div>
           <button class="btn btn-primary auth-submit" id="authSubmit" type="submit">登 录</button>
-          <p class="auth-foot">账号由管理员统一分配，不开放自助注册。</p>
+          <p class="auth-foot">登录成功后在此浏览器记住账号，不保存密码。<br>账号由管理员统一分配，不开放自助注册。</p>
         </form>
       </div>`);
     document.body.appendChild(el);
+    wireAccountHistory(el);
     return el;
   }
 
@@ -110,6 +233,7 @@
   }
 
   function hideMask() {
+    closeAccountHistory();
     if (mask) mask.style.display = 'none';
     window.__authPending = false;
     everIn = true;
@@ -160,6 +284,7 @@
       });
       const d = await r.json().catch(() => ({}));
       if (r.ok && d.ok) {
+        rememberAccount((d.user || {}).user || body.username);
         location.reload();
         return;
       }
@@ -197,6 +322,7 @@
       if (r.ok) {
         const d = await r.json();
         if (d && d.ok) {
+          rememberAccount((d.user || {}).user);
           hideMask();
           paintUser(d.user);
           return;
