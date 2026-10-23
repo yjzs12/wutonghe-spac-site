@@ -1,0 +1,145 @@
+{
+  "source": "data/产量 生育期.xlsx",
+  "sheet": "Sheet1",
+  "representative_day": "上旬5日、中旬15日、下旬25日；旬级参考日期，并非实测精确日期",
+  "crops": {
+    "rice": {
+      "planting_date": "05-15",
+      "harvest_date": "09-25",
+      "stages": [
+        {
+          "name": "育秧",
+          "period": "4月中旬",
+          "reference_date": "04-15",
+          "source_cell": "C3"
+        },
+        {
+          "name": "插秧",
+          "period": "5月中旬",
+          "reference_date": "05-15",
+          "source_cell": "C6"
+        },
+        {
+          "name": "分蘖",
+          "period": "6月上旬",
+          "reference_date": "06-05",
+          "source_cell": "C8"
+        },
+        {
+          "name": "拔节",
+          "period": "7月上旬",
+          "reference_date": "07-05",
+          "source_cell": "C11"
+        },
+        {
+          "name": "孕穗",
+          "period": "7月下旬",
+          "reference_date": "07-25",
+          "source_cell": "C13"
+        },
+        {
+          "name": "抽穗",
+          "period": "8月上旬",
+          "reference_date": "08-05",
+          "source_cell": "C14"
+        },
+        {
+          "name": "灌浆",
+          "period": "8月中旬",
+          "reference_date": "08-15",
+          "source_cell": "C15"
+        },
+        {
+          "name": "乳熟",
+          "period": "9月上旬",
+          "reference_date": "09-05",
+          "source_cell": "C17"
+        },
+        {
+          "name": "蜡熟",
+          "period": "9月中旬",
+          "reference_date": "09-15",
+          "source_cell": "C18"
+        },
+        {
+          "name": "收获",
+          "period": "9月下旬",
+          "reference_date": "09-25",
+          "source_cell": "C19"
+        }
+      ]
+    },
+    "corn": {
+      "planting_date": "04-25",
+      "harvest_date": "09-25",
+      "stages": [
+        {
+          "name": "播种",
+          "period": "4月下旬",
+          "reference_date": "04-25",
+          "source_cell": "B4"
+        },
+        {
+          "name": "苗期",
+          "period": "5月上旬",
+          "reference_date": "05-05",
+          "source_cell": "B5"
+        },
+        {
+          "name": "壮苗",
+          "period": "6月上旬",
+          "reference_date": "06-05",
+          "source_cell": "B8"
+        },
+        {
+          "name": "拔节",
+          "period": "6月中旬",
+          "reference_date": "06-15",
+          "source_cell": "B9"
+        },
+        {
+          "name": "喇叭口",
+          "period": "6月下旬",
+          "reference_date": "06-25",
+          "source_cell": "B10"
+        },
+        {
+          "name": "抽雄",
+          "period": "7月中旬",
+          "reference_date": "07-15",
+          "source_cell": "B12"
+        },
+        {
+          "name": "吐丝",
+          "period": "7月下旬",
+          "reference_date": "07-25",
+          "source_cell": "B13"
+        },
+        {
+          "name": "授粉",
+          "period": "8月上旬",
+          "reference_date": "08-05",
+          "source_cell": "B14"
+        },
+        {
+          "name": "灌浆",
+          "period": "8月中旬",
+          "reference_date": "08-15",
+          "source_cell": "B15"
+        },
+        {
+          "name": "蜡熟",
+          "period": "9月上旬",
+          "reference_date": "09-05",
+          "source_cell": "B17"
+        },
+        {
+          "name": "收获",
+          "period": "9月下旬",
+          "reference_date": "09-25",
+          "source_cell": "B19"
+        }
+      ]
+    }
+  }
+}

@@ -132,6 +132,7 @@ class SoilLayerReq(BaseModel):
 class AgronomyReq(BaseModel):
     model_config = {"extra": "forbid", "allow_inf_nan": False}
     planting_date: str | None = None
+    harvest_date: str | None = None
     soil_type: str
     soil_layers: list[SoilLayerReq] | None = None
     soil_cn: float | None = None

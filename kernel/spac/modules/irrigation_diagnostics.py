@@ -5,6 +5,8 @@ Tr/TrPot is a transpiration limitation indicator, not isolated water stress.
 """
 import numpy as np
 import pandas as pd
+from config.crop_calendar import active_reference_date
+from datetime import timedelta
 
 
 def irrigation_evidence(results, summary):
@@ -26,7 +28,9 @@ def irrigation_evidence(results, summary):
         flux=rainfed.raw_water_flux.iloc[:len(d)].reset_index(drop=True)
         dates=pd.to_datetime(d["模拟日期"])
         active=flux["dap"].gt(0).to_numpy()
-        critical=((dates.dt.strftime("%m-%d")>="07-11")&(dates.dt.strftime("%m-%d")<="08-10")).to_numpy()&active
+        first = active_reference_date(crop, "07-11", rainfed.sim_year)
+        stop = active_reference_date(crop, "08-11", rainfed.sim_year)
+        critical=((dates >= pd.Timestamp(first)) & (dates < pd.Timestamp(stop))).to_numpy() & active
         tr=flux["Tr"].to_numpy();pot=flux["TrPot"].to_numpy()
         limited=(pot>.1)&(tr<.95*pot)
         growth=rainfed.raw_crop_growth.iloc[:len(d)]
@@ -52,7 +56,7 @@ def irrigation_evidence(results, summary):
             "峰值方案最大冠层覆盖度(%)":float(peak.summary["最大冠层覆盖度(%)"]),
             "雨养生育期蒸腾(mm)":float(tr[active].sum()),
             "峰值方案生育期蒸腾(mm)":float(peak.raw_water_flux.loc[peak.raw_water_flux["dap"].gt(0),"Tr"].sum()),
-            "关键期定义":"07/11—08/10，抽雄吐丝授粉的旬级代表窗口",
+            "关键期定义":f"{first:%m/%d}—{stop-timedelta(days=1):%m/%d}，抽雄吐丝授粉的旬级代表窗口（随种植及收获日期分配）",
             "首次正收获指数日期":str(dates.iloc[positives[0]].date()) if len(positives) else None,
             "结论":message,
             "限制":"降雨非全部有效降雨；ET为实际耗水。TrPot基于当时冠层，蒸腾受限天数少不能排除早期冠层受旱减产。初墒FC及土壤格网参数待验证。"}

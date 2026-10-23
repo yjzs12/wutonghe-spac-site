@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 from modules.engine_core import core_module as _core
+from config.crop_calendar import active_reference_date
 
 STAGES: List[Tuple[str,str,str]] = [
     ("返青","05-15","05-31"), ("分蘖","06-01","06-30"),
@@ -37,10 +38,11 @@ def protected_scheme(label):
 
 def critical_water_rule(date):
     """Representative windows, not observed exact dates; mm pond lower/target."""
-    md=pd.Timestamp(date).strftime("%m-%d")
-    if "05-15"<=md<="05-24":
+    day = pd.Timestamp(date).date()
+    mapped = lambda md: active_reference_date("rice", md, day.year)
+    if mapped("05-15") <= day < mapped("05-25"):
         return "移栽返青保水",20.,30.
-    if "07-10"<=md<="08-24":
+    if mapped("07-10") <= day < mapped("08-25"):
         # Includes the actual August flowering window implied by HIstart/FloweringCD.
         return "孕穗开花保水",30.,50.
     return None
@@ -96,8 +98,11 @@ class PaddyLayerController:
 
     @staticmethod
     def stage_index(date):
-        md = pd.Timestamp(date).strftime("%m-%d")
-        return next((i for i,(_,a,b) in enumerate(STAGES) if a<=md<=b),-1)
+        day = pd.Timestamp(date).date()
+        return next((i for i, (_, a, b) in enumerate(STAGES)
+                     if active_reference_date("rice", a, day.year) <= day <
+                     active_reference_date("rice", (pd.Timestamp(f"{day.year}-{b}") +
+                                                   pd.Timedelta(days=1)).strftime("%m-%d"), day.year)), -1)
 
     def step(self,date,storage,et0=0.,depletion_fraction=None):
         i=self.stage_index(date)

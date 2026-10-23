@@ -137,7 +137,11 @@ def build_optimization_table(results: List[SimulationResult], sim_year: int) -> 
         else:  # 正常灌溉对照(玉米) —— 固定日历
             param = "固定日历"
         if r.crop=="rice" and r.summary.get("关键期保护方案"):
-            param += "；关键期覆盖：05/15—24水层20→30mm，07/10—08/24水层30→50mm"
+            from config.crop_calendar import active_reference_date
+            from datetime import timedelta
+            day = lambda md: active_reference_date("rice", md, sim_year)
+            param += (f"；关键期覆盖：{day('05-15'):%m/%d}—{day('05-25')-timedelta(days=1):%m/%d}水层20→30mm，"
+                      f"{day('07-10'):%m/%d}—{day('08-25')-timedelta(days=1):%m/%d}水层30→50mm")
         rows.append({
             "年份": sim_year,
             "作物": CROP_CN.get(r.crop, r.crop),

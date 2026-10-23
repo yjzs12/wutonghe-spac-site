@@ -31,6 +31,13 @@ def planting_date(crop):
     return get_active(crop).get("planting_date", default)
 
 
+def harvest_date(crop):
+    from config import wutonghe_config as wc
+    default = wc.RICE_HARVEST_DATE if crop == "rice" else wc.CORN_HARVEST_DATE
+    value = get_active(crop).get("harvest_date")
+    return date.fromisoformat(value).strftime("%m/%d") if value else default
+
+
 @contextmanager
 def use_settings(settings):
     token = _active.set(deepcopy(settings))
@@ -73,12 +80,16 @@ def _soil_catalog():
 def capabilities():
     from config import wutonghe_config as wc
     from config.crop_params import get_crop_params
+    from config.crop_calendar import reference_calendar, MIN_SEASON_DAYS
     return dict(
         soils=deepcopy(_soil_catalog()),
         defaults={c: dict(planting_date=planting_date(c).replace("/", "-"),
                          soil_type="wutonghe_paddy" if c == "rice" else "wutonghe_dryland")
                   for c in ("rice", "corn")},
         sim_start=wc.SIM_START_MD.replace("/", "-"),
+        sim_end=wc.SIM_END_MD.replace("/", "-"),
+        calendar=deepcopy(reference_calendar()),
+        min_season_days=MIN_SEASON_DAYS,
         min_soil_depth={c: round(get_crop_params(c)["Zmax"] + 0.1, 6) for c in ("rice", "corn")},
         harvest={"rice": wc.RICE_HARVEST_DATE.replace("/", "-"),
                  "corn": wc.CORN_HARVEST_DATE.replace("/", "-")},
@@ -88,6 +99,7 @@ def capabilities():
 def validate_settings(crops, year, options=None):
     from config import wutonghe_config as wc
     from config.crop_params import get_crop_params
+    from config.crop_calendar import allocate_stages, MIN_SEASON_DAYS
     catalog = _soil_catalog()
     result = {}
     for crop in crops:
@@ -105,7 +117,22 @@ def validate_settings(crops, year, options=None):
             planted = date.fromisoformat(f"{year}-{md.replace('/', '-')}")
         start = date.fromisoformat(f"{year}-{wc.SIM_START_MD.replace('/', '-')}")
         end_md = wc.RICE_HARVEST_DATE if crop == "rice" else wc.CORN_HARVEST_DATE
-        end = date.fromisoformat(f"{year}-{end_md.replace('/', '-')}")
+        default_plant = wc.RICE_PLANTING_DATE if crop == "rice" else wc.CORN_PLANTING_DATE
+        default_span = (date.fromisoformat(f"{year}-{end_md.replace('/', '-')}") -
+                        date.fromisoformat(f"{year}-{default_plant.replace('/', '-')}")).days
+        raw_harvest = item.get("harvest_date")
+        if raw_harvest:
+            try:
+                end = date.fromisoformat(raw_harvest)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("收获日期须为有效日期 YYYY-MM-DD") from exc
+        else:
+            end = planted + timedelta(days=default_span)
+        sim_end = date.fromisoformat(f"{year}-{wc.SIM_END_MD.replace('/', '-')}")
+        if end.year != year or end > sim_end:
+            raise ValueError(f"收获日期必须属于模拟年份，且不晚于{sim_end}")
+        if (end - planted).days < MIN_SEASON_DAYS:
+            raise ValueError(f"收获日期须晚于播种/移栽日期至少{MIN_SEASON_DAYS}天")
         # Rice requires five preparation days plus one preceding soil-state day.
         earliest = start + timedelta(days=6 if crop == "rice" else 0)
         if not earliest <= planted < end:
@@ -143,5 +170,6 @@ def validate_settings(crops, year, options=None):
         cfg["dz"] = [0.1] * round(depth * 10)
         result[crop] = dict(planting_date=planted.strftime("%m/%d"),
                             planting_date_iso=planted.isoformat(), harvest_date=end.isoformat(),
+                            calendar_stages=allocate_stages(crop, planted, end),
                             soil_type=key, soil_modified=modified, soil=cfg)
     return result

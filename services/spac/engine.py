@@ -37,7 +37,7 @@ _booted = False
 _rs = None
 _wc = None
 
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 
 # (内核绘图函数名, 输出文件名模板, 前端面板标题)
 FIG_SPECS = (
@@ -368,10 +368,8 @@ def water_requirement(results, crop: str, year: int,
     from modules.atmosphere import build_weather_df
     # 生育期与出苗天数取自内核配置，避免在页面侧硬编码日期
     from config.simulation_settings import planting_date
-    from config.crop_params import RICE_PARAMS, CORN_PARAMS
+    from modules.crop_sim import build_crop
     _PLANTING = {c: planting_date(c) for c in ("rice", "corn")}
-    _EMERGENCE_CD = {"rice": RICE_PARAMS.get("EmergenceCD"),
-                     "corn": CORN_PARAMS.get("EmergenceCD")}
 
     ck = next((r for r in results
                if r.crop == crop and r.label == rs.NORMAL_LABEL), None)
@@ -420,7 +418,7 @@ def water_requirement(results, crop: str, year: int,
         try:
             _md = str(plant_md).replace("-", "/").split("/")
             p_dt = pd.Timestamp(year=int(year), month=int(_md[0]), day=int(_md[1]))
-            emerg_days = int(_EMERGENCE_CD.get(crop, 0) or 0)
+            emerg_days = int(build_crop(crop).EmergenceCD)
             # AquaCrop 把移栽/播种当日记为第 1 天，故出苗日 = 移栽日 + (EmergenceCD-1)
             e_dt = p_dt + pd.Timedelta(days=max(emerg_days - 1, 0))
             pre = m[m["日期"] < p_dt]
@@ -664,7 +662,7 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
     log("#" * 62)
 
     for crop, item in agronomy.items():
-        log(f"# {rs.CROP_CN[crop]}：田间日期 {item['planting_date_iso']}；土壤 {item['soil']['name']}")
+        log(f"# {rs.CROP_CN[crop]}：田间日期 {item['planting_date_iso']}；收获 {item['harvest_date']}；土壤 {item['soil']['name']}")
     log(f"#  {year} 年 | {' + '.join(rs.CROP_CN[c] for c in crops)} | "
         f"共 {sum(n_schemes(c) for c in crops)} 方案")
     log("#" * 62)
@@ -724,7 +722,7 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
     evidence_name=f"irrigation_evidence_{year}.csv"
     evidence.to_csv(out_dir/evidence_name,index=False,encoding="utf-8-sig")
     settings_name=f"run_settings_{year}.json"
-    (out_dir/settings_name).write_text(json.dumps(dict(model_revision="2026-10-23-agronomy-v8",optimization_rule="max_yield_then_min_irrigation",irrigation=settings,agronomy=agronomy),ensure_ascii=False,indent=2),encoding="utf-8")
+    (out_dir/settings_name).write_text(json.dumps(dict(model_revision="2026-10-23-calendar-v9",optimization_rule="max_yield_then_min_irrigation",irrigation=settings,agronomy=agronomy),ensure_ascii=False,indent=2),encoding="utf-8")
     optimal_files = []
     if not optimal.empty:
         optimal.to_csv(out_dir / f"optimal_irrigation_{year}.csv",
@@ -859,7 +857,7 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
 
     return {
         "type": "spac",
-        "model_revision": "2026-10-23-agronomy-v8",
+        "model_revision": "2026-10-23-calendar-v9",
         "optimization_rule":"max_yield_then_min_irrigation",
         "rice_optimization_status":"pending_four_schemes",
         "corn_optimization":corn_optimization,
@@ -868,7 +866,7 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
         "evidence":df_records(evidence),
         "irrigation_basis": "net_puddling_balance_v4",
         "yield_basis": {"rice": "14.5%含水率稻谷（来源表未注明，暂定）", "corn": "干籽粒"},
-        "model_notes": "玉米最佳灌溉方式直接采用AquaCrop搜索的最优四阶段阈值，按产量最高、同等产量下净灌水最少排序；不使用保产比例或减产容许量。正常灌溉对照单列。雨养关闭灌溉。水稻暂保留现有方案供比较，待提供四个替换方案后再确定最优。播种/移栽日期与土壤采用本次所选参数，详见运行设置；收获日期及品种生育参数仍沿用模型默认值。初墒FC及土壤预设仍待验证。田间净量、施加毛量和水源取水估算分别报告。",
+        "model_notes": "玉米最佳灌溉方式直接采用AquaCrop搜索的最优四阶段阈值，按产量最高、同等产量下净灌水最少排序；不使用保产比例或减产容许量。正常灌溉对照单列。雨养关闭灌溉。水稻暂保留现有方案供比较，待提供四个替换方案后再确定最优。播种/移栽、收获日期与土壤采用本次所选参数；中间生育期按产量 生育期.xlsx的旬级参考时间比例分配，模型生育历时和分期灌溉同步调整，详见运行设置。初墒FC及土壤预设仍待验证。田间净量、施加毛量和水源取水估算分别报告。",
         "year": year,
         "crops": crops,
         "crop_names": [rs.CROP_CN[c] for c in crops],

@@ -232,7 +232,8 @@ def _build_rice_schedule(sim_year: int, depths: List[int]) -> pd.DataFrame:
     """
     if len(depths) != len(RICE_IRR_DATES_MD):
         raise ValueError(f"水稻定额长度({len(depths)})与灌水日期数({len(RICE_IRR_DATES_MD)})不匹配")
-    dates = [f"{sim_year}/{m:02d}/{d:02d}" for m, d in RICE_IRR_DATES_MD]
+    from config.crop_calendar import active_reference_date
+    dates = [active_reference_date("rice", f"{m:02d}-{d:02d}", sim_year) for m, d in RICE_IRR_DATES_MD]
     return pd.DataFrame({
         "Date": pd.to_datetime(dates),
         "Depth": depths,
@@ -283,6 +284,8 @@ def _build_dryland_normal_schedule(crop: str, sim_year: int) -> pd.DataFrame:
             f"{sim_year}/08/15",   # 来源表8月中旬灌浆的代表日期
         ]
         depths = [32, 40, 48, 40]   # 毛量合计 160 mm（净 144 mm）
+        from config.crop_calendar import active_reference_date
+        dates = [active_reference_date("corn", day[5:], sim_year) for day in dates]
     else:
         raise ValueError(f"未知旱作作物: {crop}")
     return pd.DataFrame({

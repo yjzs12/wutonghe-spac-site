@@ -61,7 +61,14 @@ async function loadAgronomySettings() {
     section.innerHTML = `<legend>${name} · 种植与土壤</legend>
       <div class="field"><label for="${crop}PlantingDate">${name}${crop === 'rice' ? '移栽' : '播种'}日期</label>
         <input id="${crop}PlantingDate" type="date" required>
-        <div class="hint">收获日期沿用 ${agronomyConfig.harvest[crop]}。</div></div>
+        <div class="hint">修改后收获日期同步顺延；也可单独调整下方收获日期。</div></div>
+      <div class="field"><label for="${crop}HarvestDate">${name}收获日期</label>
+        <input id="${crop}HarvestDate" type="date" required>
+        <div class="hint">各生育期按参考表格的时间比例在种植至收获之间自动分配。</div></div>
+      <details class="calendar-preview" open><summary>自动分配的生育期日期</summary>
+        <div class="hint">依据《产量 生育期.xlsx》，上、中、下旬分别取5、15、25日为参考。以下为分配日期。</div>
+        <div id="${crop}CalendarStages" class="hint" aria-live="polite"></div>
+      </details>
       <div class="field"><label for="${crop}SoilType">土壤类型</label>
         <select id="${crop}SoilType"></select><div class="hint" id="${crop}SoilSource"></div></div>
       <details class="soil-editor"><summary>展开并修改土壤参数</summary>
@@ -82,6 +89,17 @@ async function loadAgronomySettings() {
     select.value = agronomyConfig.defaults[crop].soil_type;
     select.addEventListener('change', () => renderSoilEditor(crop));
     $('#' + crop + 'SoilReset').addEventListener('click', () => renderSoilEditor(crop));
+    const planted = $('#' + crop + 'PlantingDate');
+    planted.addEventListener('input', () => {
+      const harvest = $('#' + crop + 'HarvestDate');
+      if (planted.value && planted.dataset.previous && harvest.value) {
+        const shift = calendarDay(planted.value) - calendarDay(planted.dataset.previous);
+        harvest.value = calendarISO(calendarDay(harvest.value) + shift);
+      }
+      planted.dataset.previous = planted.value;
+      updateCropCalendar(crop);
+    });
+    $('#' + crop + 'HarvestDate').addEventListener('input', () => updateCropCalendar(crop));
     renderSoilEditor(crop);
   });
   syncPlantingYear(true);
@@ -120,6 +138,37 @@ function renderSoilEditor(crop, saved = null) {
   });
 }
 
+function calendarDay(iso) { return Date.parse(iso + 'T00:00:00Z') / 86400000; }
+function calendarISO(day) { return new Date(day * 86400000).toISOString().slice(0, 10); }
+
+function updateCropCalendar(crop) {
+  const planted = $('#' + crop + 'PlantingDate');
+  const harvest = $('#' + crop + 'HarvestDate');
+  const box = $('#' + crop + 'CalendarStages');
+  const year = $('#yearSelect').value;
+  const minimum = agronomyConfig.min_season_days;
+  const start = calendarDay(`${year}-${agronomyConfig.sim_start}`) + (crop === 'rice' ? 6 : 0);
+  const end = calendarDay(`${year}-${agronomyConfig.sim_end}`);
+  planted.min = calendarISO(start);
+  planted.max = calendarISO(harvest.value ? Math.min(end, calendarDay(harvest.value)) - minimum : end - minimum);
+  harvest.min = calendarISO(planted.value ? calendarDay(planted.value) + minimum : start + minimum);
+  harvest.max = calendarISO(end);
+  box.replaceChildren();
+  if (!planted.value || !harvest.value || !planted.checkValidity() || !harvest.checkValidity()) {
+    box.textContent = `请选择有效日期，生长期至少${minimum}天，收获不晚于${year}-${agronomyConfig.sim_end}。`;
+    return;
+  }
+  const ref = agronomyConfig.calendar.crops[crop];
+  const origin = calendarDay(`${year}-${ref.planting_date}`);
+  const duration = calendarDay(`${year}-${ref.harvest_date}`) - origin;
+  const days = calendarDay(harvest.value) - calendarDay(planted.value);
+  ref.stages.filter(stage => stage.reference_date >= ref.planting_date).forEach(stage => {
+    const fraction = (calendarDay(`${year}-${stage.reference_date}`) - origin) / duration;
+    const iso = calendarISO(calendarDay(planted.value) + Math.round(fraction * days));
+    box.appendChild(el('div', '', `${stage.name}：${iso}（参考：${stage.period}）`));
+  });
+}
+
 function syncPlantingYear(reset = false) {
   if (!agronomyConfig) return;
   const year = $('#yearSelect').value;
@@ -128,12 +177,11 @@ function syncPlantingYear(reset = false) {
     const input = $('#' + crop + 'PlantingDate');
     const md = !reset && input.value ? input.value.slice(5) : agronomyConfig.defaults[crop].planting_date;
     input.value = `${year}-${md}`;
-    const start = new Date(`${year}-${agronomyConfig.sim_start}T00:00:00Z`);
-    if (crop === 'rice') start.setUTCDate(start.getUTCDate() + 6);
-    input.min = start.toISOString().slice(0, 10);
-    const end = new Date(`${year}-${agronomyConfig.harvest[crop]}T00:00:00Z`);
-    end.setUTCDate(end.getUTCDate() - 1);
-    input.max = end.toISOString().slice(0, 10);
+    input.dataset.previous = input.value;
+    const harvest = $('#' + crop + 'HarvestDate');
+    const harvestMD = !reset && harvest.value ? harvest.value.slice(5) : agronomyConfig.harvest[crop];
+    harvest.value = `${year}-${harvestMD}`;
+    updateCropCalendar(crop);
   });
 }
 
@@ -167,6 +215,7 @@ function agronomyRunOptions(crop) {
     if (depth < minDepth - 1e-8 || depth > 3 + 1e-8) throw new Error(`土壤总深度须在${minDepth}至3m之间，以覆盖根区与底边界`);
     payload[c + '_agronomy'] = {
       planting_date: $('#' + c + 'PlantingDate').value,
+      harvest_date: $('#' + c + 'HarvestDate').value,
       soil_type: $('#' + c + 'SoilType').value,
       soil_layers: layers,
       soil_cn: Number($('#' + c + 'SoilCN').value),
@@ -375,7 +424,7 @@ function clearResults() {
 
 function renderResult(jobId, res) {
   lastResult = res;
-  const directModel = ['2026-10-23-agronomy-v8', '2026-10-23-corn-direct-v7'].includes(res.model_revision);
+  const directModel = ['2026-10-23-calendar-v9', '2026-10-23-agronomy-v8', '2026-10-23-corn-direct-v7'].includes(res.model_revision);
   const moistureModel = directModel || res.model_revision === '2026-10-23-corn-moisture-v6';
   const currentModel = moistureModel || res.model_revision === '2026-10-22-corn-water-v5';
   const currentRice = currentModel || res.model_revision === '2026-10-22-rice-v4';
@@ -389,6 +438,9 @@ function renderResult(jobId, res) {
     syncPlantingYear(true);
     if (agronomyConfig) Object.entries(res.agronomy_settings || {}).forEach(([crop, settings]) => {
       $('#' + crop + 'PlantingDate').value = settings.planting_date_iso;
+      $('#' + crop + 'PlantingDate').dataset.previous = settings.planting_date_iso;
+      $('#' + crop + 'HarvestDate').value = settings.harvest_date;
+      updateCropCalendar(crop);
       $('#' + crop + 'SoilType').value = settings.soil_type;
       renderSoilEditor(crop, settings.soil);
     });
@@ -396,7 +448,7 @@ function renderResult(jobId, res) {
   }
   const agronomyResult = $('#agronomyResult');
   agronomyResult.textContent = Object.entries(res.agronomy_settings || {}).map(([crop, settings]) =>
-    `${crop === 'rice' ? '水稻移栽' : '玉米播种'}：${settings.planting_date_iso}；${settings.soil.name}`).join(' ｜ ');
+    `${crop === 'rice' ? '水稻移栽' : '玉米播种'}：${settings.planting_date_iso}；收获：${settings.harvest_date}；${settings.soil.name}`).join(' ｜ ');
   agronomyResult.classList.toggle('hidden', !res.agronomy_settings);
 
   /* --- KPI 条：把最优灌溉制度摊成指标卡 --- */
