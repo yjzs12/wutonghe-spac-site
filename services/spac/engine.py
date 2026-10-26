@@ -37,7 +37,7 @@ _booted = False
 _rs = None
 _wc = None
 
-VERSION = "1.10.0"
+VERSION = "1.10.1"
 
 # (内核绘图函数名, 输出文件名模板, 前端面板标题)
 FIG_SPECS = (
@@ -641,7 +641,10 @@ def validate_agronomy_settings(crops, year, options=None):
 def agronomy_capabilities():
     _ensure()
     from config.simulation_settings import capabilities
-    return capabilities()
+    from config.crop_params import RICE_PARAMS
+    result = capabilities()
+    result["rice_stomatal_depletion_start_fraction"] = float(RICE_PARAMS["p_up2"])
+    return result
 
 
 def run(crops: list[str], year: int, out_dir: Path, progress=None,
@@ -673,6 +676,8 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
     settings=validate_run_settings(crops,irrigation_options,yield_target,rice_management)
     from config.soil_params import get_soil_config
     rice_soil=get_soil_config("rice") if "rice" in crops else None
+    from config.crop_params import RICE_PARAMS
+    rice_stomatal_start = float(RICE_PARAMS["p_up2"]) if "rice" in crops else None
 
 
     if owner:
@@ -746,7 +751,7 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
     evidence_name=f"irrigation_evidence_{year}.csv"
     evidence.to_csv(out_dir/evidence_name,index=False,encoding="utf-8-sig")
     settings_name=f"run_settings_{year}.json"
-    (out_dir/settings_name).write_text(json.dumps(dict(model_revision="2026-10-23-rice-audit-v6",optimization_rule="corn_max_yield_rice_retention",irrigation=settings,agronomy=agronomy,yield_target=yield_target,rice_management=rice_management,rice_soil=rice_soil,rice_parameter_version="wutonghe-rice-v6-20261023"),ensure_ascii=False,indent=2),encoding="utf-8")
+    (out_dir/settings_name).write_text(json.dumps(dict(model_revision="2026-10-23-rice-audit-v6",optimization_rule="corn_max_yield_rice_retention",irrigation=settings,agronomy=agronomy,yield_target=yield_target,rice_management=rice_management,rice_soil=rice_soil,rice_parameter_version="wutonghe-rice-v6-20261023",rice_stomatal_depletion_start_fraction=rice_stomatal_start),ensure_ascii=False,indent=2),encoding="utf-8")
     optimal_files = []
     if not optimal.empty:
         optimal.to_csv(out_dir / f"optimal_irrigation_{year}.csv",
@@ -896,6 +901,7 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
         "optimization_rule":"corn_max_yield_rice_retention",
         "rice_optimization_status":"v6_candidate_uncalibrated",
         "rice_parameter_version":"wutonghe-rice-v6-20261023",
+        "rice_stomatal_depletion_start_fraction":rice_stomatal_start,
         "rice_soil":rice_soil,
         "rice_management":rice_management or {},
         "yield_target":yield_target,
