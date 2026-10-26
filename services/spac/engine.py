@@ -37,14 +37,14 @@ _booted = False
 _rs = None
 _wc = None
 
-VERSION = "1.10.1"
+VERSION = "1.11.0"
 
 # (内核绘图函数名, 输出文件名模板, 前端面板标题)
 FIG_SPECS = (
     ("plot_yield_irrigation_curve", "yield_irr_curve_{crop}_{year}.png",
      "产量-灌水量响应曲线"),
     ("plot_water_dynamics", "water_dynamics_{crop}_normal_{year}.png",
-     "水分动态（正常灌溉对照）"),
+     "水分动态"),
     ("plot_irrigation_schedule", "irrigation_schedule_{crop}_{year}.png",
      "灌溉制度时序对比"),
 )
@@ -372,7 +372,7 @@ def water_requirement(results, crop: str, year: int,
     _PLANTING = {c: planting_date(c) for c in ("rice", "corn")}
 
     ck = next((r for r in results
-               if r.crop == crop and (r.label == rs.NORMAL_LABEL or (crop == "rice" and r.label == "常规淹水"))), None)
+               if r.crop == crop and ((crop == "corn" and "墒情优化" in r.summary) or (crop == "rice" and r.label == "常规淹水"))), None)
     if ck is None:
         return None
 
@@ -465,6 +465,7 @@ def water_requirement(results, crop: str, year: int,
         "name": rs.CROP_CN[crop],
         "period": f"{m['日期'].iloc[0]:%m-%d} ~ {m['日期'].iloc[-1]:%m-%d}",
         "phenology": phenology,
+        "scheme": ck.label,
         "monthly": {
             "columns": ["时段", "参考需水量ET0(mm)", "作物需水量ETc(mm)",
                         "作物系数Kc", "降雨量(mm)", "净灌水量(mm)"],
@@ -506,7 +507,7 @@ def _plot_water_requirement(day_df, crop_cn: str, year: int, path: Path) -> None
             label="参考需水量 ET0")
     ax.plot(x, day_df["蒸腾蒸发量(mm)"], "-", color="#d62828", lw=1.5,
             label="作物需水量 ETc")
-    ax.set_title(f"{crop_cn}需水过程（{year} 年 · 正常灌溉对照）", fontsize=11)
+    ax.set_title(f"{crop_cn}需水过程（{year} 年）", fontsize=11)
     ax.set_xlabel("日期")
     ax.set_ylabel("mm / 天")
     ax.xaxis.set_major_locator(mdates.MonthLocator())
@@ -554,7 +555,7 @@ def _plot_growth_curve(results, crop: str, crop_cn: str, year: int,
         return False
 
     rs, wc = _ensure()
-    ck = next((r for r in rows if r.scheme_type == rs.NORMAL_LABEL or
+    ck = next((r for r in rows if (crop == "corn" and "墒情优化" in r.summary) or
                (r.crop == "rice" and r.label == "常规淹水")), None)
     others = [r for r in rows if r is not ck]
 
@@ -592,7 +593,7 @@ def _plot_growth_curve(results, crop: str, crop_cn: str, year: int,
     ax.xaxis.set_major_locator(mdates.MonthLocator())
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
     ax.grid(axis="y", ls=":", alpha=0.5)
-    ax.set_title(f"{crop_cn}{title}（{year} 年 · 正常灌溉对照及各灌溉档位）",
+    ax.set_title(f"{crop_cn}{title}（{year} 年 · 灌溉方案对比）",
                  fontsize=11, pad=22)
     ax.legend(loc="lower left", bbox_to_anchor=(0, 1.005, 1, 0.1), mode="expand",
               ncols=8, fontsize=7.5, frameon=False, handlelength=1.6,
@@ -611,12 +612,9 @@ def _plot_growth_curve(results, crop: str, crop_cn: str, year: int,
 # --------------------------------------------------------------------------- #
 #  运行
 # --------------------------------------------------------------------------- #
-def validate_run_settings(crops, irrigation_options=None, yield_target=.95, rice_management=None):
+def validate_run_settings(crops, irrigation_options=None, rice_management=None):
     _ensure()
     from config.irrigation_params import utilization_settings
-    import math
-    if not math.isfinite(yield_target) or not .90<=yield_target<=1.:
-        raise ValueError("保产比例须在90%—100%之间")
     options=irrigation_options or {}
     defaults={"rice":"rice_surface","corn":"corn_canal"}
     if "rice" in crops:
@@ -648,15 +646,15 @@ def agronomy_capabilities():
 
 
 def run(crops: list[str], year: int, out_dir: Path, progress=None,
-        owner: str = "", irrigation_options=None, agronomy_options=None, yield_target=.95, rice_management=None) -> dict:
+        owner: str = "", irrigation_options=None, agronomy_options=None, rice_management=None) -> dict:
     agronomy = validate_agronomy_settings(crops, year, agronomy_options)
     from config.simulation_settings import use_settings
     with use_settings(agronomy):
-        return _run_configured(crops, year, out_dir, progress, owner, irrigation_options, agronomy, yield_target, rice_management)
+        return _run_configured(crops, year, out_dir, progress, owner, irrigation_options, agronomy,  rice_management)
 
 
 def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
-                    owner: str = "", irrigation_options=None, agronomy=None, yield_target=.95, rice_management=None) -> dict:
+                    owner: str = "", irrigation_options=None, agronomy=None, rice_management=None) -> dict:
     """运行当前档位优化并出图，把所有交付物落到 out_dir。
 
     `owner` 决定内核读哪套气象数据：运行前把 `wc.DATA_DIR` 切到该用户私有目录，
@@ -673,7 +671,7 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
                              awd_ponding_limit_days=None,awd_ponding_limit_depth_mm=None,
                              awd_duration_drain_target_mm=None,pre_drying_days=3,
                              drying_handoff=True,drying_min_days=5,recovery_budget_days=2) | (rice_management or {})
-    settings=validate_run_settings(crops,irrigation_options,yield_target,rice_management)
+    settings=validate_run_settings(crops,irrigation_options,rice_management)
     from config.soil_params import get_soil_config
     rice_soil=get_soil_config("rice") if "rice" in crops else None
     from config.crop_params import RICE_PARAMS
@@ -746,18 +744,18 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
     log(f"\n汇总表已保存 (irrigation_optimization_{year}.csv)")
     log(summary.to_string(index=False))
 
-    optimal = rs.find_optimal(summary, yield_target)
+    optimal = rs.find_optimal(summary)
     evidence=irrigation_evidence(year_results,summary)
     evidence_name=f"irrigation_evidence_{year}.csv"
     evidence.to_csv(out_dir/evidence_name,index=False,encoding="utf-8-sig")
     settings_name=f"run_settings_{year}.json"
-    (out_dir/settings_name).write_text(json.dumps(dict(model_revision="2026-10-23-rice-audit-v6",optimization_rule="corn_max_yield_rice_retention",irrigation=settings,agronomy=agronomy,yield_target=yield_target,rice_management=rice_management,rice_soil=rice_soil,rice_parameter_version="wutonghe-rice-v6-20261023",rice_stomatal_depletion_start_fraction=rice_stomatal_start),ensure_ascii=False,indent=2),encoding="utf-8")
+    (out_dir/settings_name).write_text(json.dumps(dict(model_revision="2026-10-26-crop-simplified-v7",optimization_rule="max_yield_then_min_irrigation",irrigation=settings,agronomy=agronomy,rice_management=rice_management,rice_soil=rice_soil,rice_parameter_version="wutonghe-rice-v6-20261023",rice_stomatal_depletion_start_fraction=rice_stomatal_start),ensure_ascii=False,indent=2),encoding="utf-8")
     optimal_files = []
     if not optimal.empty:
         optimal.to_csv(out_dir / f"optimal_irrigation_{year}.csv",
                        index=False, encoding="utf-8-sig")
         optimal_files.append(f"optimal_irrigation_{year}.csv")
-        log(f"\n★ {year} 年灌溉筛选结果（水稻为计算候选；玉米保留模型最优档位）：")
+        log(f"\n★ {year} 年灌溉筛选结果（最高产，同产量取灌水最少）：")
         log(optimal.to_string(index=False))
 
     # ---- 生长过程曲线（冠层覆盖度 / 干物质量，正常灌溉对照 + 各档叠加）----
@@ -822,7 +820,7 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
               .to_csv(out_dir / wr_daily_csv, index=False, encoding="utf-8-sig")
         water_req = {
             "year": year,
-            "basis": "各作物常规对照（水稻CF，玉米CK）",
+            "basis": "水稻常规淹水CF；玉米模型最优方案",
             "crops": [wr for wr, _ in wr_crops],
             "csv": wr_csv,
             "daily_csv": wr_daily_csv,
@@ -882,7 +880,6 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
             peak=summary[summary["作物"].eq(row["作物"])].sort_values(["最终籽粒产量(t/ha)","累计灌溉量(mm)"],ascending=[False,True]).iloc[0]
             kpi.append({
                 "最高产方案":peak["灌溉方案"],
-                "保产比例(%)":yield_target*100 if row["作物"] == "水稻" else None,
                 "较峰值减产(%)":None if pd.isna(row.get("较峰值减产(%)")) else float(row["较峰值减产(%)"]),
                 "产量达最大百分比(%)":None if pd.isna(row.get("产量达最大百分比(%)")) else float(row["产量达最大百分比(%)"]),
                 "作物": row.get("作物"),
@@ -897,21 +894,20 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
 
     return {
         "type": "spac",
-        "model_revision": "2026-10-23-rice-audit-v6",
-        "optimization_rule":"corn_max_yield_rice_retention",
-        "rice_optimization_status":"v6_candidate_uncalibrated",
+        "model_revision": "2026-10-26-crop-simplified-v7",
+        "optimization_rule":"max_yield_then_min_irrigation",
+        "rice_optimization_status":"four_regime_max_yield",
         "rice_parameter_version":"wutonghe-rice-v6-20261023",
         "rice_stomatal_depletion_start_fraction":rice_stomatal_start,
         "rice_soil":rice_soil,
         "rice_management":rice_management or {},
-        "yield_target":yield_target,
         "corn_optimization":corn_optimization,
         "irrigation_settings":settings,
         "agronomy_settings":agronomy,
         "evidence":df_records(evidence),
         "irrigation_basis": "net_puddling_balance_v4",
         "yield_basis": {"rice": "14.5%含水率稻谷（来源表未注明，暂定）", "corn": "干籽粒"},
-        "model_notes": "节水候选由所选保产比例与气象、土壤、管理参数共同决定，不代表最高产、经济最优或实测结论。玉米保留固定四档、雨养及动态最优搜索；最大根深0.9m受已有1m剖面约束，不再隐式加深土层，播种日接续春季墒情；吐丝期对齐旬级资料。田间净量、田间施加毛量和水源取水估算分别报告，利用系数只换算一次。水稻采用候选V6四模式CF/SWI/AWD/CI，四模式统一晒田衔接：晒前3天停常规建水层，仅R≤70%限量救援；计划晒田满5日后遇救援需求可结束强排，采用下一阶段复水规则；衔接前2天按入渗能力、目标水层、现有水层和当日模拟降雨限制净补水。3/5/2日为未率定工程候选，管理切换不改变作物物候。CF含一次晒田；净量含移栽前5天泡田。饱和度阈值按控制层含水率/SAT计算，关键期保水型AWD/CI在开花期保水，其他阶段无明水不作为失败。控制层默认0–20cm，可配置；目标未达及暂态积水详见管理台账。若关键期保水未通过，该年可能无推荐候选。薄犁底层候选位于20–28cm；初始仅0–20cm饱和，下部FC。Ksat及心土参数未率定，名义犁底层Ksat仍为2.8mm/d；深层渗漏不预设为零。救援复水暂缓强排，保留水层用于后续入渗。AWD保留无明水且达到饱和度下限后复水至20/30mm的规则，排水与复水目标独立，阶段遗留水自然消退；默认50mm蓄雨上限，未配置独立耐淹时限不按天数强排。CI补水目标与排水上限独立，阶段遗留水自然消退；默认50mm蓄雨上限，未确认耐淹时限时不按积水天数排空。CI普通饱和度控制阶段按表层Ksat扣除田面存水及当天模拟降雨后的预算分日补水；触发后复水至控制层99%SAT容差或阶段切换，可能因入渗能力不足持续未达目标。当天降雨为回算输入，不是实时预报。晒田救援也按入渗预算分次补水。关键期触发加入日内损失保守预算；这是日尺度保护候选，不是实时预报。CF/SWI超目标计数在阶段切换时重置，停灌期自然落干，不因原补水目标为零而强排。全季耗水及水分利用效率按移栽至模拟终止核算，全模拟窗耗水另列。模型可能因冠层衰老早于配置成熟日期终止，详见输出标记；现场验证通过固定为0，推荐仅为计算筛选。日尺度模型未模拟深水防冷的水温效益；产量暂按14.5%水分折算。初墒FC、根深、格网土壤与参考定额仍待现场验证。",
+        "model_notes": "输入气象、种植日期与土壤参数，输出各方案产量、用水及最优制度。",
         "year": year,
         "crops": crops,
         "crop_names": [rs.CROP_CN[c] for c in crops],

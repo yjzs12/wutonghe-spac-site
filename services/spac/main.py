@@ -47,7 +47,7 @@ WEB_DIR = Path(__file__).resolve().parent / "web"
 
 app = sa.make_service(TITLE, VERSION, BASE_PATH, PUBLIC_PREFIX,
                       description=f"土壤-作物-大气连续体耦合模拟 · "
-                                  f"水稻 {engine.n_schemes('rice')} 方案；玉米墒情控制六档及对照")
+                                  f"水稻 {engine.n_schemes('rice')} 方案；玉米墒情控制六档")
 manager = JobManager(CONFIG.work_dir / "spac", "spac")
 
 # 登录 / 验证码 / 全站鉴权（中间件只拦 /api/* 与 /files/*）
@@ -167,7 +167,6 @@ class RunReq(BaseModel):
     corn_application_efficiency_pct: float = Field(90.,gt=0.,le=100.)
     rice_agronomy: AgronomyReq | None = None
     corn_agronomy: AgronomyReq | None = None
-    yield_target_pct: float = Field(95., ge=90., le=100., allow_inf_nan=False)
     rice_management: RiceManagement = Field(default_factory=RiceManagement)
 
 
@@ -181,7 +180,7 @@ def run(req: RunReq, request: Request):
     agronomy = {c: value.model_dump(exclude_none=True) for c in crops
                 if (value := getattr(req, c + "_agronomy")) is not None}
     try:
-        engine.validate_run_settings(crops,options,req.yield_target_pct/100.,req.rice_management.model_dump())
+        engine.validate_run_settings(crops,options,req.rice_management.model_dump())
         engine.validate_agronomy_settings(crops, req.year, agronomy)
     except ValueError as e:
         raise HTTPException(400,str(e)) from e
@@ -203,7 +202,7 @@ def run(req: RunReq, request: Request):
         return engine.run(crops, req.year, job.out_dir, owner=who,
                           progress=lambda msg: setattr(job, "progress", msg),
                           irrigation_options=options, agronomy_options=agronomy,
-                          yield_target=req.yield_target_pct/100., rice_management=req.rice_management.model_dump())
+                          rice_management=req.rice_management.model_dump())
 
     job = manager.submit(title, task, params=req.model_dump(),
                          owner=who)
@@ -230,16 +229,15 @@ def capabilities():
             "fixed_smt": [[value] * 4 for value in (100, 75, 50, 25)],
             "rainfed": True,
             "optimal": "AquaCrop四阶段阈值搜索；直接采用最高产、同产量最少净灌水的组合",
-            "reference_separate": True,
+            "reference_separate": False,
         },
         "figures_per_crop": 6,
         "accepts": ["weather_csv"],
         "utilization_profiles":UTILIZATION_PROFILES,
         "agronomy":engine.agronomy_capabilities(),
-        "optimization_rule":"corn_max_yield_rice_retention",
-        "rice_optimization_status":"v6_candidate_uncalibrated",
+        "optimization_rule":"max_yield_then_min_irrigation",
+        "rice_optimization_status":"four_regime_max_yield",
         "rice_parameter_version":"wutonghe-rice-v6-20261023",
-        "yield_target_range_pct":[90,100],
     }
 
 

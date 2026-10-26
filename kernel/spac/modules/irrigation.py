@@ -301,7 +301,7 @@ def get_smt_schemes(crop: str) -> List[SchemeTuple]:
     """返回作物的全部灌溉方案列表。
 
     水稻: 常规淹水CF、浅湿SWI、干湿交替AWD、控制灌溉CI共四制度
-    玉米: 固定净定额144mm对照 + 四档固定阈值 + 雨养 + 动态最优
+    玉米: 四档固定阈值 + 雨养 + 动态最优
 
     Returns
     -------
@@ -318,8 +318,8 @@ def get_smt_schemes(crop: str) -> List[SchemeTuple]:
     else:
         raise ValueError(f"未知作物: {crop}")
 
-    # 玉米: 对照单列；四个固定阈值、真正雨养、AquaCrop 动态搜索最优，共六档。
-    schemes = [(NORMAL_LABEL, None, "normal", None, TYPE_NORMAL)]
+    # 玉米: 四个固定阈值、雨养和动态最优，共六个方案。
+    schemes = []
     for smt in SMT_LEVELS[key]:
         schemes.append((corn_smt_label(smt), list(smt), "smt", None, TYPE_SMT))
     schemes.append(("雨养", None, "rainfed", None, TYPE_SMT))
