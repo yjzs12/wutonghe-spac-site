@@ -241,8 +241,10 @@ def capabilities():
     }
 
 
+from services.spac import distributed_api
+distributed_api.install(app, manager, RiceManagement)
 sa.add_common_routes(app, manager, env_fn=engine.probe_env)
-sa.mount_pages(app, WEB_DIR, {"": "spac.html"}, WEB_DIR / "static")
+sa.mount_pages(app, WEB_DIR, {"": "spac.html", "distributed": "distributed.html"}, WEB_DIR / "static")
 
 
 # --------------------------------------------------------------------------- #
