@@ -4,6 +4,7 @@
   let geo = null, features = [], selected = new Set(), focused = null;
   let result = null, resultJob = null, activeJob = null, watchGeneration = 0, loadingGeneration = 0, detailGeneration = 0;
   let sources = null, paths = [], scale = 1, offsetX = 0, offsetY = 0, busy = false;
+  let soilSource = 'gee_grid';
   const canvas = $('#distMap'), ctx = canvas.getContext('2d');
   const colors = {missing:'#273c46',rice:'#59bd91',corn:'#d1b962',other:'#71828b'};
   const cropNames = {rice:'水稻',corn:'玉米',other:'其他',unknown:'未分类',all:'合计'};
@@ -38,25 +39,27 @@
   }
   async function loadSources(preferred={}) {
     sources = await request('/api/distributed/sources');
-    fillSelect($('#distSoilSource'),sources.soil_sources);
+    const requestedSoil=preferred.soil||soilSource;
+    soilSource=sources.soil_sources.some(x=>x.id===requestedSoil)?requestedSoil:'gee_grid';
+    $('#distSoilInfo').textContent=soilSource==='gee_grid'
+      ?'采用 OpenLandMap 土壤产品，水稻四层、玉米三层。'
+      :'正在使用已导入土壤数据：'+sources.soil_sources.find(x=>x.id===soilSource).name;
     fillSelect($('#distCropSource'),sources.datasets.filter(x => x.kind==='crop' && x.status==='ready'),'请选择种植结构成果');
-    fillSelect($('#distCropJob'),sources.crop_jobs,'选择可关联任务');
     fillSelect($('#distYear'),sources.years.map(year => ({id:year,name:String(year)})));
     if (!$('#distCropSource').value && sources.datasets.some(x => x.id==='builtin2025')) $('#distCropSource').value='builtin2025';
-    if (preferred.soil) $('#distSoilSource').value=preferred.soil;
     if (preferred.crop) $('#distCropSource').value=preferred.crop;
     if (preferred.year && sources.years.includes(Number(preferred.year))) $('#distYear').value=String(preferred.year);
     else if (!geo && sources.years.includes(2025)) $('#distYear').value='2025';
     if(preferred.crop&&!preferred.year){
       const crop=sources.datasets.find(x=>x.id===preferred.crop);
       if(crop&&sources.years.includes(crop.year))$('#distYear').value=String(crop.year);
-    }else if(preferred.year&&!preferred.crop&&!$('#distCrossYear').checked){
+    }else if(preferred.year&&!preferred.crop){
       const matches=sources.datasets.filter(x=>x.kind==='crop'&&x.status==='ready'&&x.year===Number(preferred.year));
       $('#distCropSource').value=(matches.find(x=>x.id===`builtin${preferred.year}`)||matches[0]||{id:''}).id;
     }
     await Promise.all([loadGrid(),loadHistory()]);
   }
-  const sourceQuery = () => new URLSearchParams({soil_source:$('#distSoilSource').value,crop_source:$('#distCropSource').value}).toString();
+  const sourceQuery = () => new URLSearchParams({soil_source:soilSource,crop_source:$('#distCropSource').value}).toString();
   async function loadGrid() {
     const generation=++loadingGeneration;
     ++detailGeneration;
@@ -166,7 +169,7 @@
     data.files.filter(f=>labels[f.rel]).forEach(file=>{const a=document.createElement('a');a.className='btn btn-sm';a.textContent=labels[file.rel];a.href=BASE+'/files/'+encodeURIComponent(jobId)+'/'+file.rel+'?download=1';$('#distDownloads').append(a);});
     draw();if(focused)guarded(()=>showDetail(focused))();
   }
-  function setBusy(value){busy=value;['distRun','distImportClass','distImportSoil','distImportWeather','distLinkJob','distYear','distSoilSource','distCropSource','distCrossYear','distRefresh'].forEach(id=>$('#'+id).disabled=value);}
+  function setBusy(value){busy=value;['distRun','distImportClass','distImportSoil','distImportWeather','distYear','distCropSource','distRefresh'].forEach(id=>$('#'+id).disabled=value);}
   async function watch(jobId, onDone) {
     const generation=++watchGeneration;let offset=0;activeJob=jobId;setBusy(true);$('#distLog').textContent='';
     while(generation===watchGeneration){
@@ -179,7 +182,7 @@
     }
   }
   async function loadHistory(){const data=await request('/api/jobs?limit=30');const jobs=(Array.isArray(data)?data:data.jobs||[]).filter(j=>j.params&&j.params.type==='distributed');$('#distHistory').replaceChildren();jobs.slice(0,10).forEach(job=>{const button=document.createElement('button');button.className='btn btn-sm dist-history-btn';button.textContent=`${job.title} · ${job.status}`;button.addEventListener('click',guarded(()=>restoreJob(job.id)));$('#distHistory').append(button);});if(!jobs.length)$('#distHistory').textContent='暂无分布式模拟任务';}
-  async function restoreJob(id){if(busy&&activeJob!==id)throw new Error('当前任务仍在运行，请完成后查看其他任务');const data=await request('/api/job/'+encodeURIComponent(id));if(data.params&&data.params.type!=='distributed')throw new Error('该任务不是分布式模拟');if(data.params){selected=new Set(data.params.grid_ids||[]);$('#distCrossYear').checked=!!data.params.allow_cross_year;await loadSources({soil:data.params.soil_source,crop:data.params.crop_source,year:data.params.year});}if(data.status==='done'&&data.result){if(data.result.type!=='distributed')throw new Error('结果类型不匹配');renderResult(id,data.result);$('#distStatus').textContent='已完成';$('#distProgress').textContent='已恢复历史结果';}else if(data.status==='failed')throw new Error(data.error||'历史任务失败');else await watch(id,r=>renderResult(id,r));}
+  async function restoreJob(id){if(busy&&activeJob!==id)throw new Error('当前任务仍在运行，请完成后查看其他任务');const data=await request('/api/job/'+encodeURIComponent(id));if(data.params&&data.params.type!=='distributed')throw new Error('该任务不是分布式模拟');if(data.params){selected=new Set(data.params.grid_ids||[]);await loadSources({soil:data.params.soil_source,crop:data.params.crop_source,year:data.params.year});}if(data.status==='done'&&data.result){if(data.result.type!=='distributed')throw new Error('结果类型不匹配');renderResult(id,data.result);$('#distStatus').textContent='已完成';$('#distProgress').textContent='已恢复历史结果';}else if(data.status==='failed')throw new Error(data.error||'历史任务失败');else await watch(id,r=>renderResult(id,r));}
 
   $('#distRefresh').addEventListener('click',guarded(()=>loadSources()));
   function clearResult(message) {
@@ -187,30 +190,25 @@
     $('#distSummary').textContent=message;$('#distDownloads').replaceChildren();
     $('#distProgress').textContent='尚未运行';
   }
-  ['distSoilSource','distCropSource'].forEach(id=>$('#'+id).addEventListener('change',guarded(async()=>{
-    if(id==='distCropSource'){
-      const crop=sources.datasets.find(x=>x.id===$('#distCropSource').value);
-      if(crop&&sources.years.includes(crop.year))$('#distYear').value=String(crop.year);
-    }
+  $('#distCropSource').addEventListener('change',guarded(async()=>{
+    const crop=sources.datasets.find(x=>x.id===$('#distCropSource').value);
+    if(crop&&sources.years.includes(crop.year))$('#distYear').value=String(crop.year);
     clearResult('输入已切换，请重新模拟。');await loadGrid();
-  })));
+  }));
   $('#distFilter').addEventListener('change',draw);
   $('#distYear').addEventListener('change',guarded(async()=>{
     const year=Number($('#distYear').value);
     const sameYear=sources.datasets.filter(x=>x.kind==='crop'&&x.status==='ready'&&x.year===year);
-    if(!$('#distCrossYear').checked){
-      const current=sources.datasets.find(x=>x.id===$('#distCropSource').value);
-      if(!current||current.year!==year)$('#distCropSource').value=(sameYear.find(x=>x.id===`builtin${year}`)||sameYear[0]||{id:''}).id;
-    }
+    const current=sources.datasets.find(x=>x.id===$('#distCropSource').value);
+    if(!current||current.year!==year)$('#distCropSource').value=(sameYear.find(x=>x.id===`builtin${year}`)||sameYear[0]||{id:''}).id;
     clearResult('年份已切换，请重新模拟。');await loadGrid();
   }));
   $('#distFit').addEventListener('click',fitMap);$('#distClear').addEventListener('click',()=>{selected.clear();updateCount();});
   $('#distLocate').addEventListener('click',guarded(async()=>{const id=$('#distGridSearch').value.trim();if(!features.some(f=>f.id===id))throw new Error('未找到该格网 ID');await showDetail(id);if(!selected.has(id))toggleSelect(id);const f=features.find(f=>f.id===id),p=project([f.properties.longitude,f.properties.latitude]);scale=Math.max(scale,15000);offsetX=canvas.clientWidth/2-scale*p[0];offsetY=canvas.clientHeight/2-scale*p[1];draw();}));
   $('#distSelectReady').addEventListener('click',()=>{if(!$('#distCropSource').value){toast('先选择种植结构成果','err');return;}selected.clear();features.filter(visible).forEach(f=>{if(selected.size>=sources.max_cells)return;const p=f.properties;const soilOk=p.soil_status!=='missing';if(soilOk&&['rice','corn'].some(c=>p.soil_crops.includes(c)&&(p.areas_ha||{})[c]>1e-8))selected.add(f.id);});updateCount();notice(selected.size?'已选择可计算格网；每次最多64格，可清空后另选。':'没有可计算格网，请调整作物筛选或输入数据。');});
-  $('#distRun').addEventListener('click',guarded(async()=>{if(busy)return;if(!selected.size)throw new Error('请点击地图选择格网，或使用“选择可计算格网”');const req={year:Number($('#distYear').value),grid_ids:[...selected],soil_source:$('#distSoilSource').value,crop_source:$('#distCropSource').value,allow_cross_year:$('#distCrossYear').checked};[['rice_planting_date','distRicePlant'],['rice_harvest_date','distRiceHarvest'],['corn_planting_date','distCornPlant'],['corn_harvest_date','distCornHarvest']].forEach(([key,id])=>{if($('#'+id).value)req[key]=$('#'+id).value;});const data=await post('/api/distributed/run',req);history.replaceState(null,'',location.pathname+'?distributed_job='+encodeURIComponent(data.job_id));notice(`已提交 ${data.n_grid_crops} 个格网作物，跳过 ${data.skipped.length} 个；正在计算。`);await watch(data.job_id,r=>renderResult(data.job_id,r));}));
+  $('#distRun').addEventListener('click',guarded(async()=>{if(busy)return;if(!selected.size)throw new Error('请点击地图选择格网，或使用“选择可计算格网”');const req={year:Number($('#distYear').value),grid_ids:[...selected],soil_source:soilSource,crop_source:$('#distCropSource').value,allow_cross_year:false};[['rice_planting_date','distRicePlant'],['rice_harvest_date','distRiceHarvest'],['corn_planting_date','distCornPlant'],['corn_harvest_date','distCornHarvest']].forEach(([key,id])=>{if($('#'+id).value)req[key]=$('#'+id).value;});const data=await post('/api/distributed/run',req);history.replaceState(null,'',location.pathname+'?distributed_job='+encodeURIComponent(data.job_id));notice(`已提交 ${data.n_grid_crops} 个格网作物，跳过 ${data.skipped.length} 个；正在计算。`);await watch(data.job_id,r=>renderResult(data.job_id,r));}));
   $('#distImportWeather').addEventListener('click',guarded(async()=>{const file=$('#distWeather').files[0];let data;try{data=await formUpload('/api/weather',file);}catch(e){if(!e.needConfirm)throw e;if(!confirm(e.message+'\n确定替换该年份气象？'))return;data=await formUpload('/api/weather',file,{override_era5:'true'});}await loadSources({year:data.year});notice(`已导入 ${data.year} 年气象；完整性将在模拟前检查。`);}));
-  $('#distImportSoil').addEventListener('click',guarded(async()=>{const data=await formUpload('/api/distributed/soil',$('#distSoilFile').files[0]);await loadSources({soil:data.source_id});notice(`土壤已导入，包含 ${data.n_grids} 个格网。`);}));
+  $('#distImportSoil').addEventListener('click',guarded(async()=>{const data=await formUpload('/api/distributed/soil',$('#distSoilFile').files[0]);clearResult('土壤已切换，请重新模拟。');await loadSources({soil:data.source_id});notice(`土壤已导入并用于当前模拟，包含 ${data.n_grids} 个格网。`);}));
   $('#distImportClass').addEventListener('click',guarded(async()=>{const data=await formUpload('/api/distributed/classification',$('#distClassFile').files[0],{year:$('#distClassYear').value});await watch(data.job_id,()=>loadSources({crop:data.source_id}));}));
-  $('#distLinkJob').addEventListener('click',guarded(async()=>{const id=$('#distCropJob').value;if(!id)throw new Error('请选择可关联任务');const data=await post('/api/distributed/classification/from-job',{job_id:id});await watch(data.job_id,()=>loadSources({crop:data.source_id}));}));
   guarded(async()=>{await loadSources();const id=new URLSearchParams(location.search).get('distributed_job');if(id)await restoreJob(id);})().catch(()=>{});
 })();
