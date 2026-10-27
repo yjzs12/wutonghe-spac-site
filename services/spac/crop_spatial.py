@@ -15,7 +15,7 @@ from shapely.ops import transform
 from services.spac.spatial import GRID_CRS
 
 # Confirmed from the extraction model's rf_model_2024_meta.json.
-DEFAULT_CLASS_MAP = {0: "other", 1: "rice", 2: "corn"}
+DEFAULT_CLASS_MAP = {0: "other", 1: "rice", 2: "corn", 3: None}
 
 
 def inspect_raster(path):
@@ -31,7 +31,10 @@ def inspect_raster(path):
 
 
 def crop_areas(src, cell, class_map=None, transforms=None):
-    """cell is UTM52N geometry. Unknown class codes remain other, never a crop."""
+    """cell is UTM52N geometry. Code 3 is unknown/non-farmland in extraction.
+
+    Keep it outside classified crop areas. Other unfamiliar codes remain other.
+    """
     codes = DEFAULT_CLASS_MAP if class_map is None else class_map
     to_src, to_metric = transforms or (
         Transformer.from_crs(GRID_CRS, src.crs, always_xy=True).transform,
@@ -54,6 +57,8 @@ def crop_areas(src, cell, class_map=None, transforms=None):
             polygon = transform(to_metric, shape(geometry))
             clipped = cell.intersection(polygon)
             key = codes.get(int(value), "other")
+            if key is None:
+                continue
             area[key] += clipped.area/10000
     total = cell.area/10000
     classified = sum(area.values())

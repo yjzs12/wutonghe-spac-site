@@ -17,9 +17,10 @@ class DistributedRunReq(BaseModel):
     model_config = {"extra": "forbid", "allow_inf_nan": False}
     year: int = Field(ge=1900, le=2100)
     grid_ids: list[str] = Field(min_length=1, max_length=d.MAX_CELLS)
-    soil_source: str = "builtin"
+    soil_source: str = "gee_grid"
     crop_source: str
-    allow_representative_soil: bool = False
+    # Retained for compatibility with saved jobs; no acknowledgement gate.
+    allow_representative_soil: bool = True
     allow_cross_year: bool = False
     rice_planting_date: str | None = None
     corn_planting_date: str | None = None

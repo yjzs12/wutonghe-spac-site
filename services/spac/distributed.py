@@ -62,8 +62,17 @@ def load_soils(owner, source_id="builtin"):
 def load_crop(owner, source_id):
     if not source_id:
         return {}, None
-    if source_id == "builtin2025" and (spatial.DATA / "crop_2025_index.json").exists():
-        return spatial.read_json(spatial.DATA / "crop_2025_index.json"), spatial.read_json(spatial.DATA / "crop_2025_meta.json")
+    match = re.fullmatch(r"builtin(20\d{2})", source_id)
+    if match:
+        year = int(match.group(1))
+        index_path = spatial.DATA / f"crop_{year}_index.json"
+        meta_path = spatial.DATA / f"crop_{year}_meta.json"
+        if index_path.is_file() and meta_path.is_file():
+            meta = spatial.read_json(meta_path)
+            if meta.get("year") != year or meta.get("grid_version") != spatial.grid()["grid_version"]:
+                raise ValueError("内置种植结构年份或格网版本不匹配")
+            return spatial.read_json(index_path), meta
+        raise ValueError(f"{year}年暂无内置种植结构成果，请导入对应年份分类")
     path, meta = source_path(owner, source_id, "crop")
     return spatial.read_json(path / "index.json"), meta
 
@@ -93,8 +102,10 @@ def accessible_crop_job(job_id, viewer):
 def sources(viewer):
     owner = viewer.get("user") or ""
     datasets = []
-    if (spatial.DATA / "crop_2025_index.json").exists():
-        datasets.append(spatial.read_json(spatial.DATA / "crop_2025_meta.json"))
+    for path in sorted(spatial.DATA.glob("crop_20??_meta.json")):
+        item = spatial.read_json(path)
+        if (spatial.DATA / f"crop_{item['year']}_index.json").is_file():
+            datasets.append(item)
     for path in private_dir(owner).glob("*/meta.json"):
         item = spatial.read_json(path)
         # Do not return absolute paths or another user's results.
@@ -105,9 +116,9 @@ def sources(viewer):
         meta = spatial.read_json(path)
         if auth.can_see(meta.get("owner") or "__legacy__", viewer) and meta.get("status") == "done":
             jobs.append(dict(id=path.parent.name, title=meta.get("title", path.parent.name)))
-    soil_sources = [dict(id="builtin", name="GEE 已下载代表点（3点，非全区覆盖）")]
+    soil_sources = []
     if (spatial.DATA / "gee_soils.json").exists():
-        soil_sources.insert(0, dict(id="gee_grid", name="GEE 格网采样（250m，含模型假设参数）"))
+        soil_sources.append(dict(id="gee_grid", name="OpenLandMap 土壤产品"))
     soil_sources.extend(dict(id=x["id"], name=x["name"]) for x in datasets
                         if x["kind"] == "soil" and x["status"] == "ready")
     return dict(ok=True, datasets=datasets, soil_sources=soil_sources, crop_jobs=jobs,
@@ -194,8 +205,6 @@ def prepare(req, owner):
             reason = None
             if soil["status"] == "missing" or crop not in soil.get("crops", {}):
                 reason = "缺少该作物的完整格网土壤剖面"
-            elif soil["status"] in ("point_only", "grid_sample") and not req["allow_representative_soil"]:
-                reason = "须明确同意采用代表采样和模型假设土壤参数"
             if reason:
                 skipped.append(dict(grid_id=key, crop=crop, crop_area_ha=area, status="skipped", reason=reason))
                 continue
