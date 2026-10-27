@@ -222,17 +222,20 @@ class SPACCropModel:
             print("  水层上下限: " + describe_bands(self.smt))
             install(self.controller)
         try:
+            self.model._initialize()
+            # AquaCrop 3.1 updates dzsum during runoff partitioning. Pandas
+            # Copy-on-Write exposes it as a read-only view; give this run its
+            # own writable buffer without changing the soil depth values.
+            profile = self.model._param_struct.Soil.Profile
+            profile.dzsum = profile.dzsum.copy()
             if self.crop=="rice" and pd.Timestamp(start)<pd.Timestamp(f"{sim_year}/{self._crop.planting_date}"):
                 # Natural pre-season FC is an explicit unmeasured April-1 prior.
                 # Preserve the selected transplant profile in thini, but do not
                 # give the fallow field a second uncounted saturated profile.
-                self.model._initialize()
                 self.model._init_cond.thini=self.model._init_cond.thini.copy()
                 self.model._init_cond.th=np.asarray(self.model._param_struct.Soil.profile.th_fc,dtype=float).copy()
                 self.model._init_cond.surface_storage=0.
-                self.model.run_model(till_termination=True,initialize_model=False)
-            else:
-                self.model.run_model(till_termination=True)
+            self.model.run_model(till_termination=True,initialize_model=False)
         finally:
             if self.mode == "wlayer":
                 uninstall()
