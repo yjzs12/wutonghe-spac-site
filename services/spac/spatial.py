@@ -36,10 +36,7 @@ def layer_mapping(crop, layers):
         bottom = round(top+layer["depth"], 6)
         result.append(dict(top_m=top, bottom_m=bottom, thickness_m=layer["depth"],
                            source_depths_cm=depths, aggregation="piecewise_linear_depth_average",
-                           fields=["FC"], matric_potential_kpa=-33,
-                           retained_field_mapping=dict(SAT=legacy_depths, PWP="existing_profile"),
-                           retained_field_aggregation="arithmetic_mean",
-                           note="FC按源深度间线性插值后积分求层平均；SAT沿用原映射，PWP保留既有参数。非分层实测"))
+                           note="FC线性插值层平均；其他参数沿用"))
         top = bottom
     return result
 
