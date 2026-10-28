@@ -134,7 +134,7 @@ def csv_text(table):
 
 def install(app):
     from fastapi import HTTPException
-    from fastapi.responses import PlainTextResponse
+    from fastapi.responses import PlainTextResponse, FileResponse
     base = app.state.base_path
 
     def guarded(fn, *args):
@@ -174,8 +174,7 @@ def install(app):
     def download_weather(grid_id: str, year: int):
         data = guarded(grid, grid_id, year)
         path = dataset(data["snapshot_id"]) / "inputs/weather" / data["weather"]["file"]
-        return PlainTextResponse(path.read_text(encoding="utf-8-sig"), media_type="text/csv; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="{path.name}"'})
+        return FileResponse(path, media_type="text/csv", filename=path.name)
 
     @app.get(f"{base}/api/distributed/fixed/daily/{{grid_id}}")
     def get_daily(grid_id: str, year: int, crop: str, scheme: str):
