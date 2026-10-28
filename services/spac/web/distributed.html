@@ -8,34 +8,48 @@
 <link rel="stylesheet" href="__BASE__/static/distributed.css?v=__V__">
 </head>
 <body>
-<nav class="navbar"><div class="navbar-inner"><a class="brand" href="__BASE__/"><span class="dot">梧</span>梧桐河灌区</a><div class="nav-right"><a class="btn btn-sm" href="__BASE__/">单区作物生长模型</a><span class="pill" id="distStatus">就绪</span></div></div></nav>
+<nav class="navbar"><div class="navbar-inner"><a class="brand" href="__BASE__/"><span class="dot">梧</span>梧桐河灌区</a><div class="nav-right"><a class="btn btn-sm" href="__BASE__/">单区作物生长模型</a><span class="pill" id="distStatus">加载中</span></div></div></nav>
 <main class="container dist-container">
-  <div class="dist-heading"><div><h1 class="page-title">分布式灌溉配置</h1><p class="page-desc">选择年份和作物格网，点击模拟。输入气象、种植结构与土壤，输出作物生长、灌溉需水和产量。</p></div><span class="pill">250 m 格网</span></div>
-  <div id="distNotice" class="notice" role="status">正在加载数据源…</div>
+  <div class="dist-heading"><div><h1 class="page-title">分布式灌溉配置</h1><p class="page-desc">选择年份，点击格网查看各灌溉制度的产量、用水与逐日结果。</p></div><span class="pill">250 m 格网</span></div>
+  <div id="distNotice" class="notice" role="status">正在读取预计算结果…</div>
+
   <div class="dist-layout">
     <aside class="dist-controls">
-      <section class="card"><div class="card-head"><h2>01 / 气象与种植结构</h2><button class="btn btn-sm" id="distRefresh">刷新</button></div><div class="card-body">
-        <div class="field"><label for="distYear">气象模拟年份</label><select id="distYear" aria-label="气象模拟年份"></select></div>
-        <details><summary>导入逐日气象</summary><p class="hint">按<a href="__BASE__/api/weather_template">气象 CSV 模板</a>填写并导入。</p><input aria-label="气象 CSV" type="file" id="distWeather" accept=".csv"><button class="btn btn-sm" id="distImportWeather">导入气象</button></details>
-        <div class="field"><label for="distCropSource">种植结构提取结果</label><select id="distCropSource"><option value="">请导入分类成果</option></select></div>
-        <details><summary>导入种植结构成果</summary><label for="distClassYear">分类年份</label><input id="distClassYear" type="number" value="2024" min="1900" max="2100"><input id="distClassFile" aria-label="种植结构分类 GeoTIFF" type="file" accept=".tif,.tiff"><p class="hint">使用种植结构模块导出的 GeoTIFF。</p><button class="btn btn-sm" id="distImportClass">导入并匹配</button></details>
-      </div></section>
-      <section class="card"><div class="card-head"><h2>02 / 土壤与模拟设置</h2></div><div class="card-body">
-        <div class="field"><span>土壤输入</span><p class="hint" id="distSoilInfo">采用 OpenLandMap 土壤产品，水稻四层、玉米三层。</p></div>
-        <details><summary>导入格网土壤</summary><p class="hint">使用<a href="__BASE__/api/distributed/soil_template">土壤 JSON 模板</a>，保持水稻四层、玉米三层格式。</p><input aria-label="格网土壤 JSON" id="distSoilFile" type="file" accept=".json"><button class="btn btn-sm" id="distImportSoil">导入土壤</button></details>
-        <details><summary>种植与收获日期（可选）</summary><p class="hint">留空使用当前作物模型默认日期与生育期。种植日期改变时，默认收获日期按生育期联动。</p><div class="dist-dates"><label>水稻移栽<input id="distRicePlant" type="date"></label><label>水稻收获<input id="distRiceHarvest" type="date"></label><label>玉米播种<input id="distCornPlant" type="date"></label><label>玉米收获<input id="distCornHarvest" type="date"></label></div></details>
-        <button class="btn btn-primary btn-block" id="distRun">模拟选中格网</button><p class="hint" id="distSelectionCount">已选择 0 格，每次最多 64 格</p>
-      </div></section>
-      <section class="card"><div class="card-head"><h2>最近分布式任务</h2></div><div class="card-body" id="distHistory">暂无</div></section>
+      <section class="card">
+        <div class="card-head"><h2>年份</h2></div>
+        <div class="card-body">
+          <div class="field"><select id="distYear" aria-label="计算年份"></select></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>分制度汇总</h2><span class="sub" id="distSumSub"></span></div>
+        <div class="card-body" id="distSummary"><div class="empty-state">加载中…</div></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>数据</h2></div>
+        <div class="card-body">
+          <p class="hint" id="distBasis">—</p>
+        </div>
+      </section>
     </aside>
+
     <div class="dist-workspace">
-      <section class="card"><div class="card-head"><h2>作物类型格网</h2><button class="btn btn-sm" id="distFit">全区</button></div>
-        <div class="dist-map-toolbar"><select id="distFilter" aria-label="筛选主导作物"><option value="all">全部作物</option><option value="rice">水稻主导</option><option value="corn">玉米主导</option><option value="other">其他主导</option></select><button class="btn btn-sm" id="distSelectReady">选择可计算格网</button><button class="btn btn-sm" id="distClear">清空选择</button><label class="dist-search">格网 ID<input id="distGridSearch" placeholder="输入或粘贴格网 ID"><button class="btn btn-sm" id="distLocate">定位</button></label></div>
-        <div class="dist-map-wrap"><canvas id="distMap" role="img" aria-label="梧桐河灌区可点击作物格网地图；亦可输入格网 ID 定位"></canvas><div class="dist-map-caption">N ↑ · 点击选格 · 拖动平移 · 滚轮缩放</div></div>
+      <section class="card">
+        <div class="card-head"><h2>格网分布</h2><button class="btn btn-sm" id="distFit">全区</button></div>
+        <div class="dist-map-toolbar">
+          <select id="distFilter" aria-label="按作物筛选"><option value="all">全部</option><option value="rice">仅水稻</option><option value="corn">仅玉米</option></select>
+          <label class="dist-search">格网 ID<input id="distGridSearch" placeholder="wth250_2525_20915"><button class="btn btn-sm" id="distLocate">定位</button></label>
+        </div>
+        <div class="dist-map-wrap"><canvas id="distMap" role="img" aria-label="梧桐河灌区可点击格网地图"></canvas><div class="dist-map-caption">N ↑ · 点击查询 · 拖动平移 · 滚轮缩放</div></div>
         <div class="dist-legend" id="distLegend"></div><div class="dist-map-foot" id="distMapStats"></div>
       </section>
-      <section class="card"><div class="card-head"><h2>格网输入与结果</h2><span class="sub" id="distDetailTitle">点击地图查看</span></div><div class="card-body" id="distDetail"><div class="empty-state">选择灌区中的一个格网，查看土壤剖面、种植面积与作物生长过程。</div></div></section>
-      <section class="card"><div class="card-head"><h2>所选格网 · 用水与产量</h2><span class="sub" id="distProgress" aria-live="polite">尚未运行</span></div><div class="card-body"><div id="distSummary" class="empty-state">运行后查看灌溉水量、产量和生长曲线，可下载 CSV 与地图结果。</div><div id="distDownloads" class="actions"></div><details><summary>运行日志</summary><pre id="distLog" class="dist-log"></pre></details></div></section>
+
+      <section class="card">
+        <div class="card-head"><h2>格网输入与结果</h2><span class="sub" id="distDetailTitle">点击地图查看</span></div>
+        <div class="card-body" id="distDetail"><div class="empty-state">点击灌区中的一个格网。</div></div>
+      </section>
     </div>
   </div>
 </main>

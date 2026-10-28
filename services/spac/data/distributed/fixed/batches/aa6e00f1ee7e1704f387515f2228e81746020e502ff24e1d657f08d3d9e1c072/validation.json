@@ -1,0 +1,249 @@
+{
+  "passed": true,
+  "complete": false,
+  "batch_id": "2e66ae77ec661010154a8d978829b2444f3fd9a9f01770e4d1e8ab734607a652",
+  "crop_grid_records": 5874,
+  "schemes": 26856,
+  "datasets": [
+    {
+      "name": "2023_lat47.2_lon130.6.sqlite",
+      "bytes": 569344,
+      "sha256": "797d53a0c9b2822e3c9f035e9681090fd8dabc12b806d5889c6d285d3e4bfd54"
+    },
+    {
+      "name": "2023_lat47.2_lon130.7.sqlite",
+      "bytes": 22306816,
+      "sha256": "7cc92cce31a7c7a0ac8489555e2588da6061bd4597de1d8519264d75db23c751"
+    },
+    {
+      "name": "2023_lat47.2_lon130.8.sqlite",
+      "bytes": 23433216,
+      "sha256": "134aa2fadb15dd10dc44fc9fb9558da5a61b7c7cb5bd24c5ca6a9205e1af9ef6"
+    },
+    {
+      "name": "2023_lat47.2_lon130.9.sqlite",
+      "bytes": 6938624,
+      "sha256": "b16e908330a347bc2c93b23315ac473a6502cdf77a87a123c93cfd94865ff605"
+    },
+    {
+      "name": "2023_lat47.3_lon130.6.sqlite",
+      "bytes": 30846976,
+      "sha256": "187faaa1471f8e79d36bf4146d45b6f77601d7eaa36b2373e1fd783963fac70a"
+    },
+    {
+      "name": "2023_lat47.3_lon130.7.sqlite",
+      "bytes": 51179520,
+      "sha256": "abcbc40f979b8d19a1a2762b5a6702090caf2005a66c5bdfdcb5cc0d7352833f"
+    },
+    {
+      "name": "2023_lat47.3_lon130.8.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2023_lat47.3_lon130.9.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2023_lat47.4_lon130.6.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2023_lat47.4_lon130.7.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2023_lat47.4_lon130.8.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2023_lat47.4_lon130.9.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2024_lat47.2_lon130.6.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2024_lat47.2_lon130.7.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2024_lat47.2_lon130.8.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2024_lat47.2_lon130.9.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2024_lat47.3_lon130.6.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2024_lat47.3_lon130.7.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2024_lat47.3_lon130.8.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2024_lat47.3_lon130.9.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2024_lat47.4_lon130.6.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2024_lat47.4_lon130.7.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2024_lat47.4_lon130.8.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2024_lat47.4_lon130.9.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2025_lat47.2_lon130.6.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2025_lat47.2_lon130.7.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2025_lat47.2_lon130.8.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2025_lat47.2_lon130.9.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2025_lat47.3_lon130.6.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2025_lat47.3_lon130.7.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2025_lat47.3_lon130.8.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2025_lat47.3_lon130.9.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2025_lat47.4_lon130.6.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2025_lat47.4_lon130.7.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2025_lat47.4_lon130.8.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2025_lat47.4_lon130.9.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2026_lat47.2_lon130.6.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2026_lat47.2_lon130.7.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2026_lat47.2_lon130.8.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2026_lat47.2_lon130.9.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2026_lat47.3_lon130.6.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2026_lat47.3_lon130.7.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2026_lat47.3_lon130.8.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2026_lat47.3_lon130.9.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2026_lat47.4_lon130.6.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2026_lat47.4_lon130.7.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2026_lat47.4_lon130.8.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    },
+    {
+      "name": "2026_lat47.4_lon130.9.sqlite",
+      "bytes": 12288,
+      "sha256": "b2906ee461ea556e3dd2e80c9acc917d09cfceb2d413a25dc6c9b269a4a054c3"
+    }
+  ]
+}

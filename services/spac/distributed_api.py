@@ -35,6 +35,8 @@ class CropJobReq(BaseModel):
 
 
 def install(app, manager, management_model):
+    from services.spac import fixed_results
+    fixed_results.install(app)
     base = app.state.base_path
 
     def owner(request):
@@ -124,14 +126,4 @@ def install(app, manager, management_model):
 
     @app.post(f"{base}/api/distributed/run")
     def run(req: DistributedRunReq, request: Request):
-        try:
-            data = req.model_dump()
-            data["rice_management"] = management_model(**data["rice_management"]).model_dump()
-            prepared = d.prepare(data, owner(request))
-        except ValueError as exc:
-            raise bad(exc) from exc
-        job = manager.submit(f"分布式灌溉 · {req.year} · {len(req.grid_ids)}格",
-            lambda job: d.run(data, prepared, job.out_dir, lambda msg: setattr(job, "progress", msg)),
-            params=dict(type="distributed", **data), owner=owner(request))
-        return dict(ok=True, job_id=job.id, n_grid_crops=len(prepared["items"]),
-                    skipped=prepared["skipped"])
+        raise HTTPException(410, "分布式模块已改为固定制度结果查询，请在单区模块进行模拟")
