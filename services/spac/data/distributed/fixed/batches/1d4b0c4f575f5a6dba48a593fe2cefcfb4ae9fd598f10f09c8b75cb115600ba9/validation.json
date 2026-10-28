@@ -1,0 +1,249 @@
+{
+  "passed": true,
+  "complete": true,
+  "batch_id": "2e66ae77ec661010154a8d978829b2444f3fd9a9f01770e4d1e8ab734607a652",
+  "crop_grid_records": 44632,
+  "schemes": 203969,
+  "datasets": [
+    {
+      "name": "2023_lat47.2_lon130.6.sqlite",
+      "bytes": 569344,
+      "sha256": "797d53a0c9b2822e3c9f035e9681090fd8dabc12b806d5889c6d285d3e4bfd54"
+    },
+    {
+      "name": "2023_lat47.2_lon130.7.sqlite",
+      "bytes": 22306816,
+      "sha256": "7cc92cce31a7c7a0ac8489555e2588da6061bd4597de1d8519264d75db23c751"
+    },
+    {
+      "name": "2023_lat47.2_lon130.8.sqlite",
+      "bytes": 23433216,
+      "sha256": "134aa2fadb15dd10dc44fc9fb9558da5a61b7c7cb5bd24c5ca6a9205e1af9ef6"
+    },
+    {
+      "name": "2023_lat47.2_lon130.9.sqlite",
+      "bytes": 6938624,
+      "sha256": "b16e908330a347bc2c93b23315ac473a6502cdf77a87a123c93cfd94865ff605"
+    },
+    {
+      "name": "2023_lat47.3_lon130.6.sqlite",
+      "bytes": 30846976,
+      "sha256": "187faaa1471f8e79d36bf4146d45b6f77601d7eaa36b2373e1fd783963fac70a"
+    },
+    {
+      "name": "2023_lat47.3_lon130.7.sqlite",
+      "bytes": 54665216,
+      "sha256": "4cf8518944b3941cd44bc17bbc85626da8246cdcd1b6d90fecaf76bb46b475d8"
+    },
+    {
+      "name": "2023_lat47.3_lon130.8.sqlite",
+      "bytes": 56680448,
+      "sha256": "738fae38775e589bbeb24cf6104678e4e41915fb1ea88f51af21e1c086bf7595"
+    },
+    {
+      "name": "2023_lat47.3_lon130.9.sqlite",
+      "bytes": 21753856,
+      "sha256": "16d245d3b2fad05b250b2df9180ed0d3445e71bdce51bd470d43fdf0483c6e20"
+    },
+    {
+      "name": "2023_lat47.4_lon130.6.sqlite",
+      "bytes": 569344,
+      "sha256": "4dce4ad9d96178f194b0cb62ed0866aaf78e0e5352efe30fbc3880dcb8f479a1"
+    },
+    {
+      "name": "2023_lat47.4_lon130.7.sqlite",
+      "bytes": 15724544,
+      "sha256": "d48448a58cb8eb84af61aed3a7ed9665b3f6643f1e425c1ffa1a3e09e1879f6b"
+    },
+    {
+      "name": "2023_lat47.4_lon130.8.sqlite",
+      "bytes": 19599360,
+      "sha256": "79ae9a0b9a9b9b691792aa435f2309b8ab1937fe9d8503c2cf8e8df0eac6dd06"
+    },
+    {
+      "name": "2023_lat47.4_lon130.9.sqlite",
+      "bytes": 1884160,
+      "sha256": "094d8b6168b0695d7cb3a4f08d8225526899ffb9e44f732469fb1624f5e841b4"
+    },
+    {
+      "name": "2024_lat47.2_lon130.6.sqlite",
+      "bytes": 565248,
+      "sha256": "1f7107de542e274641d0737075f3274b2314c931360c203ddfa93daaa91f9886"
+    },
+    {
+      "name": "2024_lat47.2_lon130.7.sqlite",
+      "bytes": 22941696,
+      "sha256": "6f87dd76348b99fbde6504ff237a662bc11e7a4c0591a777eb95ddb19485f985"
+    },
+    {
+      "name": "2024_lat47.2_lon130.8.sqlite",
+      "bytes": 23789568,
+      "sha256": "27f10d1ae910b20e0e4cb02b3d8171515bdf7d1202d86f652f41e9824d98255f"
+    },
+    {
+      "name": "2024_lat47.2_lon130.9.sqlite",
+      "bytes": 7225344,
+      "sha256": "82202389f7a8622ecb79481ac277f76e6c656f59d5fae69d67269d43c7a09b08"
+    },
+    {
+      "name": "2024_lat47.3_lon130.6.sqlite",
+      "bytes": 28704768,
+      "sha256": "5adfe67b4a1e3bfc663a2289114931b9300bf22e78bb015dbabd8c2c9ff32577"
+    },
+    {
+      "name": "2024_lat47.3_lon130.7.sqlite",
+      "bytes": 55799808,
+      "sha256": "383484ca0c17f0c1967e9918d72ec3107d90adf8b0019ac400cad18b746044c1"
+    },
+    {
+      "name": "2024_lat47.3_lon130.8.sqlite",
+      "bytes": 57753600,
+      "sha256": "1dc2af533421ecbe830174afba2e530e92bb9b03ccaed933f6c3a43ef87d51e9"
+    },
+    {
+      "name": "2024_lat47.3_lon130.9.sqlite",
+      "bytes": 22007808,
+      "sha256": "1c2b9fb7e7ec0559db7c015416e23a875842acdb2d0541cdcad090e2fdd56099"
+    },
+    {
+      "name": "2024_lat47.4_lon130.6.sqlite",
+      "bytes": 307200,
+      "sha256": "b67037bcf8a1a55c4f991668cf63b185865e95fb63a70cd1393d3b045f31f3b2"
+    },
+    {
+      "name": "2024_lat47.4_lon130.7.sqlite",
+      "bytes": 15319040,
+      "sha256": "71b142a75b8fd9b1177c023945c3b56e967d40d271f61ee053e035301eb3aaaa"
+    },
+    {
+      "name": "2024_lat47.4_lon130.8.sqlite",
+      "bytes": 19255296,
+      "sha256": "fe7eaa6531dbd0b18cabda0f26e38cda505db37c87d429794028b360129e3006"
+    },
+    {
+      "name": "2024_lat47.4_lon130.9.sqlite",
+      "bytes": 1785856,
+      "sha256": "4b8dc2c5157bf39f6af5d3bc5ee35044e64c7bfa52edc52a9c6158bd7de7165a"
+    },
+    {
+      "name": "2025_lat47.2_lon130.6.sqlite",
+      "bytes": 610304,
+      "sha256": "0f90c5bd1a0220ba2d9c4a1a5130fcd7d021fa08c6f4992286f0c5dd9085619c"
+    },
+    {
+      "name": "2025_lat47.2_lon130.7.sqlite",
+      "bytes": 22683648,
+      "sha256": "5e71b45d2c74459f286dd1b5dd41023310f498e237b9fb70e93bf90f93e40165"
+    },
+    {
+      "name": "2025_lat47.2_lon130.8.sqlite",
+      "bytes": 23441408,
+      "sha256": "e592de0b99b9c867b2dc811f8345f0943b68abcc01bb8a39385d248e2120f8b8"
+    },
+    {
+      "name": "2025_lat47.2_lon130.9.sqlite",
+      "bytes": 7000064,
+      "sha256": "a04bcf7819c45795ade372141c0e379b940083f1383720a94da8e117d07f08ce"
+    },
+    {
+      "name": "2025_lat47.3_lon130.6.sqlite",
+      "bytes": 36466688,
+      "sha256": "ab4f724c435e76766c0a2ca7952a508652e1b9da0428db32f3e0ac5cd3eacf18"
+    },
+    {
+      "name": "2025_lat47.3_lon130.7.sqlite",
+      "bytes": 56979456,
+      "sha256": "df6a3af1758535889dcf635395bb0e5d0bfb6221a08c61cd37be12ab9bd836a1"
+    },
+    {
+      "name": "2025_lat47.3_lon130.8.sqlite",
+      "bytes": 57491456,
+      "sha256": "ae30b252c978b28b3137a106d2939f1d820860a1b89f30dfcb2caa056d63578b"
+    },
+    {
+      "name": "2025_lat47.3_lon130.9.sqlite",
+      "bytes": 22052864,
+      "sha256": "e10a42eeb6760e60b6a14b34528c0dcd12775284671e66312eedd9c85ed7a082"
+    },
+    {
+      "name": "2025_lat47.4_lon130.6.sqlite",
+      "bytes": 548864,
+      "sha256": "c3fc2076bcf9501f288e5b28952fb8ae6d7b568dc0546c81acad52ca79b0c813"
+    },
+    {
+      "name": "2025_lat47.4_lon130.7.sqlite",
+      "bytes": 18243584,
+      "sha256": "7736bee3aeb1eb517c4ea1442497880275958d5a24ee184bfec0356ba53e8e6c"
+    },
+    {
+      "name": "2025_lat47.4_lon130.8.sqlite",
+      "bytes": 20291584,
+      "sha256": "b8e11c2f08cc4e52ebd6677b9d04b1def52e186550980207a5c2b712cc4b4350"
+    },
+    {
+      "name": "2025_lat47.4_lon130.9.sqlite",
+      "bytes": 1802240,
+      "sha256": "b575a1b9a7f784e8bbef318dda30e6ffeeef970cac2e8749aa133a3ea80f9413"
+    },
+    {
+      "name": "2026_lat47.2_lon130.6.sqlite",
+      "bytes": 565248,
+      "sha256": "b38482886243f58938327ced8eb3846f7c0ecd20d5387c88ba0220f394e29eb7"
+    },
+    {
+      "name": "2026_lat47.2_lon130.7.sqlite",
+      "bytes": 22876160,
+      "sha256": "92bcda28d0ab87565ab66832adc67ac223bbae64b2ad88365e31abbd19e4beb2"
+    },
+    {
+      "name": "2026_lat47.2_lon130.8.sqlite",
+      "bytes": 23748608,
+      "sha256": "fb94d9c25e8031f40fb4de6e769c6e823b449077596214e411c79163798e20f8"
+    },
+    {
+      "name": "2026_lat47.2_lon130.9.sqlite",
+      "bytes": 6942720,
+      "sha256": "7ffedf6a1bd989ee2317ab962210c9b51d46761077f6b73206b63f28644f6fcf"
+    },
+    {
+      "name": "2026_lat47.3_lon130.6.sqlite",
+      "bytes": 32362496,
+      "sha256": "2776d5ac34d290441ac756780b60bfead69265f35c21678f5a0c0da16e4208fb"
+    },
+    {
+      "name": "2026_lat47.3_lon130.7.sqlite",
+      "bytes": 56586240,
+      "sha256": "98aa2fca67cad22fbce8a98908ce93578feeb395fd69d53e9f45b8b4352b467d"
+    },
+    {
+      "name": "2026_lat47.3_lon130.8.sqlite",
+      "bytes": 57856000,
+      "sha256": "1d03953dfd123a4d1778e6bea502af4470429b7924c10446180c62611a66d23a"
+    },
+    {
+      "name": "2026_lat47.3_lon130.9.sqlite",
+      "bytes": 21917696,
+      "sha256": "cc8dca93f7d7e5097f0030e0cb93819fca65f1675f5f95ce710cfd59c7ebc800"
+    },
+    {
+      "name": "2026_lat47.4_lon130.6.sqlite",
+      "bytes": 585728,
+      "sha256": "3061756bc7df81001c544d1ccb4fa3f033c2f34fbb5af58679ecb267d2aa0da0"
+    },
+    {
+      "name": "2026_lat47.4_lon130.7.sqlite",
+      "bytes": 16371712,
+      "sha256": "ac9b46e0c88d54e7896d1bd8e0c3351a2b79ed45fe00e7a8085d3f732b9b08ac"
+    },
+    {
+      "name": "2026_lat47.4_lon130.8.sqlite",
+      "bytes": 20303872,
+      "sha256": "aa0a82c2c44e671965d8101eb947c16863926532e93978e9afbdb4970fe77bfb"
+    },
+    {
+      "name": "2026_lat47.4_lon130.9.sqlite",
+      "bytes": 1814528,
+      "sha256": "b3f7458be1c9670e33ffaeca6564c6270d8bd493a42e06caa3c55a95f67cb784"
+    }
+  ]
+}
