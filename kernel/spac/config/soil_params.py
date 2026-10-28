@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Water-rice candidate V2 and unchanged dryland configuration.
+"""Water-rice candidate V2; rice/corn FC use nodal depth averages.
 
 Thin plough-pan geometry: 0.20--0.28 m; source is regional evidence,
 not a measured Wutonghe profile. SAT/FC/PWP retain uncalibrated grid priors.
@@ -10,13 +10,25 @@ before interpreting any candidate as an operational irrigation prescription.
 """
 from __future__ import annotations
 from copy import deepcopy
+import csv
+from pathlib import Path
+
+from config.soil_depth import FC_AGGREGATION, FC_MAPPING_VERSION, layer_mean_fc
+
+# The original CSV remains unchanged. FC is volumetric water content at -33 kPa.
+# Reconstruct each model-layer mean by integrating a linear profile between nodes.
+with (Path(__file__).resolve().parents[1] / "data/Soil_Parameters_3crops.csv").open(
+        encoding="utf-8-sig") as _stream:
+    _fc_rows = list(csv.DictReader(_stream))
+_rice_fc = layer_mean_fc([r for r in _fc_rows if r["crop"] == "rice"], [.20, .08, .32, .40])
+_corn_fc = layer_mean_fc([r for r in _fc_rows if r["crop"] == "maize"], [.30, .30, .40])
 
 # --------------------------------------------------------------------------- #
 #  内核内置土壤预设（soil_type 字符串）
 #  使用 custom 以便按层显式给定 SAT/FC/PWP/Ks
 # --------------------------------------------------------------------------- #
-SOIL_PRESET_PADDY = "custom"       # 水田：自定义（按层给实测值）
-SOIL_PRESET_DRYLAND = "custom"    # 旱田：自定义（按层给实测值）
+SOIL_PRESET_PADDY = "custom"       # 水田：自定义（按层给定参数）
+SOIL_PRESET_DRYLAND = "custom"    # 旱田：自定义（按层给定参数）
 
 # --------------------------------------------------------------------------- #
 #  水田（水稻）剖面 —— 格网估计与文献约束参数
@@ -42,39 +54,44 @@ PADDY_SOIL_LEGACY = {
 # Keep 2.8 as an uncalibrated nominal Ksat; compare 0.5/1.0/2.8, never tune to a desired saving.
 PADDY_SOIL = {
     "name": "梧桐河水稻薄犁底层候选V2 [未率定]",
-    "version": "rice-soil-v2-20261023",
+    "version": "rice-soil-v2-fc-20261028",
+    "fc_aggregation": FC_AGGREGATION,
+    "fc_mapping_version": FC_MAPPING_VERSION,
     "preset": "custom",
     "dz": [.20, .08, .32, .40],
     "compartments": [.05]*4 + [.04]*2 + [.02, .10, .10, .10] + [.10]*4,
     "pan_bottom_m": .28,
     "puddling_sat_depth_m": .20,
     "layers": [
-        {"depth": .20, "SAT": .579, "FC": .367, "PWP": .153, "Ks": 8., "penetrability": 100},
-        {"depth": .08, "SAT": .509, "FC": .320, "PWP": .159, "Ks": 2.8, "penetrability": 40},
-        {"depth": .32, "SAT": .509, "FC": .320, "PWP": .159, "Ks": 8., "penetrability": 70},
-        {"depth": .40, "SAT": .506, "FC": .310, "PWP": .159, "Ks": 50., "penetrability": 70},
+        {"depth": .20, "SAT": .579, "FC": _rice_fc[0], "PWP": .153, "Ks": 8., "penetrability": 100},
+        {"depth": .08, "SAT": .509, "FC": _rice_fc[1], "PWP": .159, "Ks": 2.8, "penetrability": 40},
+        {"depth": .32, "SAT": .509, "FC": _rice_fc[2], "PWP": .159, "Ks": 8., "penetrability": 70},
+        {"depth": .40, "SAT": .506, "FC": _rice_fc[3], "PWP": .159, "Ks": 50., "penetrability": 70},
     ],
 }
 # Below-pan Ks=8 and penetrability=70 are explicit engineering priors; not SoilGrids observations.
 PADDY_SOIL_LEGACY.update(version="rice-soil-v1-legacy", pan_bottom_m=.60,
                          puddling_sat_depth_m=.60)
 
-# 玉米剖面沿用本次修改前配置，未重新率定。
+# 玉米 FC 按源节点重新计算层平均；其余参数沿用，未重新率定。
 DRYLAND_SOIL = {
     "name": "梧桐河旱田(白浆土) [格网估计/等效水力参数待验证]",
+    "version": "corn-soil-fc-20261028",
+    "fc_aggregation": FC_AGGREGATION,
+    "fc_mapping_version": FC_MAPPING_VERSION,
     "preset": SOIL_PRESET_DRYLAND,
     "dz": [0.30, 0.30, 0.40],
     "layers": [
         # 层1 耕作层 (0-30cm): 砂30.3% 黏27.3% 粉42.3%  容重1143 kg/m³  OC 18.3 g/kg
         # Cosby估算 Ks=97 mm/day（疏松耕作层,合理）
         # penetrability: 内核要求百分数(0-100), 100=完全可穿透
-        {"depth": 0.30, "SAT": 0.568, "FC": 0.340, "PWP": 0.174, "Ks": 97.0,  "penetrability": 100},
+        {"depth": 0.30, "SAT": 0.568, "FC": _corn_fc[0], "PWP": 0.174, "Ks": 97.0,  "penetrability": 100},
         # 层2 白浆层 (30-60cm): 砂31% 黏27% 粉42%  容重1290 kg/m³  OC 5 g/kg
         # 白浆土紧实低透水,Cosby估算=99 偏高,人工调低至 15
-        {"depth": 0.30, "SAT": 0.513, "FC": 0.300, "PWP": 0.173, "Ks": 15.0,  "penetrability": 60},
+        {"depth": 0.30, "SAT": 0.513, "FC": _corn_fc[1], "PWP": 0.173, "Ks": 15.0,  "penetrability": 60},
         # 层3 淀积层 (60-100cm): 砂31% 黏27% 粉42%  容重1310 kg/m³  OC 0 g/kg
         # Cosby估算=99,粘重淀积层调低至 30
-        {"depth": 0.40, "SAT": 0.506, "FC": 0.300, "PWP": 0.173, "Ks": 30.0,  "penetrability": 80},
+        {"depth": 0.40, "SAT": 0.506, "FC": _corn_fc[2], "PWP": 0.173, "Ks": 30.0,  "penetrability": 80},
     ],
 }
 

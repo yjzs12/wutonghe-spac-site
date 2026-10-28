@@ -18,11 +18,12 @@ GRID_SIZE = 250
 TO_METERS = Transformer.from_crs(4326, GRID_CRS, always_xy=True).transform
 TO_WGS84 = Transformer.from_crs(GRID_CRS, 4326, always_xy=True).transform
 
-# Preserve the current model's inherited hydraulic-depth mapping while keeping
-# the NEW thin-pan geometry. These source depths are proxies, not observations
-# of the 20--28 cm pan. Never reinterpret six nodal depths as six layer widths.
-SOURCE_DEPTHS = {"rice": [[0, 10, 30], [60], [60], [100]],
-                 "corn": [[0, 10, 30], [60], [100]]}
+# FC integrates between source nodes. Other hydraulic fields retain their
+# previous mapping; these remain predictions, not observations of a thin pan.
+SOURCE_DEPTHS = {"rice": [[0, 10, 30], [10, 30], [10, 30, 60], [60, 100]],
+                 "corn": [[0, 10, 30], [30, 60], [60, 100]]}
+LEGACY_SOURCE_DEPTHS = {"rice": [[0, 10, 30], [60], [60], [100]],
+                        "corn": [[0, 10, 30], [60], [100]]}
 MODEL_DEPTHS = {"rice": [.20, .08, .32, .40], "corn": [.30, .30, .40]}
 
 
@@ -31,11 +32,14 @@ def layer_mapping(crop, layers):
         raise ValueError("当前内核土层格式已变化，请更新格网转换规则后重新准备数据")
     top = 0.
     result = []
-    for layer, depths in zip(layers, SOURCE_DEPTHS[crop]):
+    for layer, depths, legacy_depths in zip(layers, SOURCE_DEPTHS[crop], LEGACY_SOURCE_DEPTHS[crop]):
         bottom = round(top+layer["depth"], 6)
         result.append(dict(top_m=top, bottom_m=bottom, thickness_m=layer["depth"],
-                           source_depths_cm=depths, aggregation="arithmetic_mean",
-                           note="继承当前模型参数映射；原始节点深度不等同于新土层观测"))
+                           source_depths_cm=depths, aggregation="piecewise_linear_depth_average",
+                           fields=["FC"], matric_potential_kpa=-33,
+                           retained_field_mapping=dict(SAT=legacy_depths, PWP="existing_profile"),
+                           retained_field_aggregation="arithmetic_mean",
+                           note="FC按源深度间线性插值后积分求层平均；SAT沿用原映射，PWP保留既有参数。非分层实测"))
         top = bottom
     return result
 

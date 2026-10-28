@@ -289,6 +289,8 @@ def run(req, prepared, out_dir, progress=None):
     rows, groups, time_series = list(prepared["skipped"]), {}, {}
     files = []
     snapshot = dict(req, weather_sha256=prepared["weather_sha256"],
+                    soil_fc_mapping_version=prepared["soils"].get("fc_mapping_version", "user_supplied"),
+                    soil_fc_aggregation=prepared["soils"].get("fc_aggregation", "user_supplied"),
                     weather_name=prepared["weather_name"], classification=prepared["crop_meta"],
                     grid_version=spatial.grid()["grid_version"], inputs=prepared["items"],
                     weather_basis="所有格网共用一套逐日气象；未做空间插值",
