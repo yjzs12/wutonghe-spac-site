@@ -2,6 +2,13 @@
 .dist-chart{max-width:100%}
 .dist-container{max-width:1800px}
 .dist-daily{scroll-margin-top:100px}
+.dist-daily-viewport{max-height:420px;overflow:auto;cursor:grab;overscroll-behavior-x:contain}
+.dist-daily-viewport.is-dragging{cursor:grabbing;user-select:none}
+.dist-daily-scroll{height:18px;overflow-x:auto;overflow-y:hidden;margin-top:10px}
+.dist-daily-scroll>div{height:1px}
+.dist-daily-scroll::-webkit-scrollbar{height:14px}
+.dist-daily-scroll::-webkit-scrollbar-track{background:#edf2f5;border-radius:7px}
+.dist-daily-scroll::-webkit-scrollbar-thumb{background:#91a3ae;border:2px solid #edf2f5;border-radius:7px}
 .dist-map-card{grid-column:1/-1;min-width:0}
 .dist-map-wrap{height:1000px;background:#fff}
 #distMap{background:#fff;touch-action:pan-y;cursor:pointer;user-select:none}

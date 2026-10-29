@@ -153,6 +153,47 @@
   new ResizeObserver(() => { if (geo) fitMap(); }).observe(canvas.parentElement);
 
   /* ---------------- 格网详情 ---------------- */
+  let clearDailyTable = () => {};
+  function renderDailyTable(container, table) {
+    clearDailyTable();
+    renderTable(container, table);
+    const viewport = $('.table-wrap', container);
+    if (!viewport) return;
+    viewport.classList.add('dist-daily-viewport');
+    viewport.tabIndex = 0;
+    viewport.setAttribute('aria-label', '逐日数据，可左右滚动');
+    const rail = document.createElement('div'), track = document.createElement('div');
+    rail.className = 'dist-daily-scroll'; rail.tabIndex = 0;
+    rail.setAttribute('aria-label', '逐日数据横向滚动条');
+    rail.appendChild(track); container.prepend(rail);
+    rail.addEventListener('scroll', () => { viewport.scrollLeft = rail.scrollLeft; });
+    viewport.addEventListener('scroll', () => { rail.scrollLeft = viewport.scrollLeft; });
+    const resize = new ResizeObserver(() => {
+      track.style.width = `${viewport.scrollWidth}px`;
+      rail.hidden = viewport.scrollWidth <= viewport.clientWidth;
+      rail.scrollLeft = viewport.scrollLeft;
+    });
+    resize.observe(viewport); resize.observe($('table', viewport));
+    clearDailyTable = () => { resize.disconnect(); clearDailyTable = () => {}; };
+    let drag = null;
+    viewport.addEventListener('pointerdown', e => {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      const rect = viewport.getBoundingClientRect();
+      if (e.clientX >= rect.left + viewport.clientLeft + viewport.clientWidth ||
+          e.clientY >= rect.top + viewport.clientTop + viewport.clientHeight) return;
+      drag = {x:e.clientX, left:viewport.scrollLeft};
+      viewport.setPointerCapture(e.pointerId);
+      viewport.classList.add('is-dragging'); e.preventDefault();
+    });
+    viewport.addEventListener('pointermove', e => {
+      if (drag) viewport.scrollLeft = drag.left + drag.x - e.clientX;
+    });
+    const stop = () => { drag = null; viewport.classList.remove('is-dragging'); };
+    viewport.addEventListener('pointerup', stop);
+    viewport.addEventListener('pointercancel', stop);
+    viewport.addEventListener('lostpointercapture', stop);
+  }
+
   function profileTable(title, profile) {
     if (!profile || !profile.soil_layers) return '';
     let top = 0;
@@ -178,6 +219,7 @@
   }
 
   async function showDetail(id) {
+    clearDailyTable();
     const token = ++detailId, requestedYear = year;
     focused = id; draw();
     $('#distDetailTitle').textContent = id;
@@ -204,6 +246,7 @@
       const dailyToken = ++detailId;
       const box = $('#distDaily');
       const current = () => dailyToken === detailId && year === requestedYear && focused === id;
+      clearDailyTable();
       button.disabled = true; button.textContent = '读取中…';
       box.setAttribute('aria-busy', 'true');
       box.innerHTML = '<p role="status">正在读取逐日数据…</p>';
@@ -211,8 +254,8 @@
       try {
         const r = await request(`/api/distributed/fixed/daily/${encodeURIComponent(id)}?year=${requestedYear}&crop=${crop}&scheme=${scheme}`);
         if (!current()) return;
-        box.innerHTML = `<h3>${cropNames[crop]} · ${escapeHtml(schemeNames[scheme] || scheme)} · 逐日结果</h3><a class="btn btn-sm" href="${BASE}/api/distributed/fixed/download/${encodeURIComponent(id)}?year=${requestedYear}&crop=${crop}&scheme=${scheme}">下载逐日 CSV</a><div class="dist-table-wrap" style="max-height:420px" id="distDailyTable"></div>`;
-        renderTable($('#distDailyTable'),r.table);
+        box.innerHTML = `<h3>${cropNames[crop]} · ${escapeHtml(schemeNames[scheme] || scheme)} · 逐日结果</h3><a class="btn btn-sm" href="${BASE}/api/distributed/fixed/download/${encodeURIComponent(id)}?year=${requestedYear}&crop=${crop}&scheme=${scheme}">下载逐日 CSV</a><div id="distDailyTable"></div>`;
+        renderDailyTable($('#distDailyTable'),r.table);
         box.scrollIntoView({block:'start'});
       } catch (e) {
         if (current()) box.innerHTML = `<p role="alert">读取失败：${escapeHtml(e.message)}。请点击“逐日数据”重试。</p>`;
@@ -225,6 +268,7 @@
 
   /* ---------------- 事件 ---------------- */
   $('#distYear').addEventListener('change', guarded(async () => {
+    clearDailyTable();
     year = Number($('#distYear').value);
     focused = null; ++detailId;
     $('#distDetail').innerHTML = '<div class="empty-state">点击灌区中的一个格网。</div>';
