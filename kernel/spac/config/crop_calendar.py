@@ -43,6 +43,16 @@ def active_reference_date(crop, md, year):
     settings = get_active(crop)
     if not settings:
         return reference_date(crop, md, year)
+    if settings.get("stage_days"):
+        # Interpolate every management reference date between the edited stages.
+        points = settings["calendar_stages"]
+        target = reference_date(crop, md, year)
+        for left, right in zip(points, points[1:]):
+            a = reference_date(crop, left["reference_date"], year)
+            b = reference_date(crop, right["reference_date"], year)
+            if a <= target <= b:
+                x, y = date.fromisoformat(left["date"]), date.fromisoformat(right["date"])
+                return x + timedelta(days=math.floor((target-a).days * (y-x).days / (b-a).days + .5))
     return map_date(crop, md, date.fromisoformat(settings["planting_date_iso"]),
                     date.fromisoformat(settings["harvest_date"]))
 

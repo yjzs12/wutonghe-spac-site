@@ -20,6 +20,7 @@ let running = false;
 let wideMode = false;
 let lastResult = null;
 let agronomyConfig = null;
+let weatherBounds = {};
 
 function displayText(value) {
   return String(value == null ? '' : value).replace(/aqua\s*crop/gi, '模型');
@@ -138,6 +139,7 @@ function renderParameterEditors(crop, saved = {}) {
   const section = $('#' + crop + 'Agronomy');
   section.querySelectorAll('.parameter-editor').forEach(node => node.remove());
   const groups = [...agronomyConfig.parameter_groups, {key: 'phenology', label: '物候参数'}];
+  renderStageEditor(crop, saved.stage_days || {});
   groups.forEach(group => {
     const phenology = group.key === 'phenology';
     const specs = phenology ? agronomyConfig.phenology_spec[crop]
@@ -178,6 +180,41 @@ function parameterValues(crop, type) {
 function calendarDay(iso) { return Date.parse(iso + 'T00:00:00Z') / 86400000; }
 function calendarISO(day) { return new Date(day * 86400000).toISOString().slice(0, 10); }
 
+function stageValues(crop) {
+  return Object.fromEntries(Array.from($('#' + crop + 'CalendarStages').querySelectorAll('[data-stage-key]'))
+    .map(input => [input.dataset.stageKey, Number(input.value)]));
+}
+
+function renderStageEditor(crop, saved = {}) {
+  const box = $('#' + crop + 'CalendarStages');
+  const ref = agronomyConfig.calendar.crops[crop];
+  const stages = ref.stages.filter(s => s.reference_date >= ref.planting_date);
+  box.replaceChildren();
+  box.appendChild(el('div', 'hint', '播种/移栽当天为第1天；推算日期自动计算。修改后的阶段参与本次模拟，生育期结束决定收获日期。'));
+  const table = document.createElement('table');
+  const head = table.createTHead().insertRow();
+  ['阶段', crop === 'rice' ? '移栽后天数' : '播种后天数', '推算日期'].forEach(label => head.appendChild(el('th', '', label)));
+  const body = table.createTBody();
+  stages.forEach((stage, i) => {
+    const row = body.insertRow();
+    row.insertCell().textContent = stage.name === '收获' ? '生育期结束' : stage.name;
+    const input = document.createElement('input');
+    const days = calendarDay('2000-' + stage.reference_date) - calendarDay('2000-' + ref.planting_date) + 1;
+    Object.assign(input, {type:'number', min:'1', max:'366', step:'1', required:true, value:saved[stage.reference_date] ?? days});
+    input.setAttribute('aria-label', `${crop === 'rice' ? '水稻' : '玉米'}${stage.name === '收获' ? '生育期结束' : stage.name}后天数`);
+    input.dataset.stageKey = stage.reference_date;
+    input.readOnly = i === 0;
+    input.addEventListener('input', () => updateCropCalendar(crop));
+    row.insertCell().appendChild(input);
+    row.insertCell().dataset.stageDate = stage.reference_date;
+  });
+  const wrap = el('div', 'table-wrap'); wrap.appendChild(table); box.appendChild(wrap);
+  const error = el('div', 'hint'); error.id = crop + 'CalendarError'; error.setAttribute('role', 'alert'); error.style.color = '#b42318'; box.appendChild(error);
+  const actual = el('div', 'calendar-stages'); actual.id = crop + 'ModelStages'; box.appendChild(actual);
+  const reset = el('button', 'btn btn-sm', '恢复生育期分布默认值'); reset.type = 'button';
+  reset.addEventListener('click', () => {renderStageEditor(crop); updateCropCalendar(crop);}); box.appendChild(reset);
+}
+
 function cropSeasonDays(crop) {
   const ref = agronomyConfig.calendar.crops[crop];
   return calendarDay(`2000-${ref.harvest_date}`) - calendarDay(`2000-${ref.planting_date}`);
@@ -187,35 +224,46 @@ function updateCropCalendar(crop) {
   const planted = $('#' + crop + 'PlantingDate');
   const box = $('#' + crop + 'CalendarStages');
   const year = $('#yearSelect').value;
-  if (!year) { box.textContent = '请先选择模拟年份。'; return; }
+  if (!year) return;
   const start = calendarDay(`${year}-${agronomyConfig.sim_start}`) + (crop === 'rice' ? 6 : 0);
   const end = calendarDay(`${year}-${agronomyConfig.sim_end}`);
   planted.min = calendarISO(start);
-  planted.max = calendarISO(end - cropSeasonDays(crop));
-  box.replaceChildren();
+  planted.max = calendarISO(end - agronomyConfig.min_season_days);
+  const errorBox = $('#' + crop + 'CalendarError');
+  if (!errorBox) return;
+  errorBox.textContent = '';
   if (!planted.value || !planted.checkValidity()) {
-    box.textContent = `请选择${planted.min}至${planted.max}之间的日期。`;
-    return;
+    errorBox.textContent = `请选择${planted.min}至${planted.max}之间的日期。`;
+    return errorBox.textContent;
   }
   const ref = agronomyConfig.calendar.crops[crop];
-  const origin = calendarDay(`${year}-${ref.planting_date}`);
-  const stages = ref.stages.filter(stage => stage.reference_date >= ref.planting_date);
-  renderTable(box, {
-    columns: ['阶段', crop === 'rice' ? '移栽后天数' : '播种后天数', '推算日期'],
-    rows: stages.map(stage => {
-      const offset = calendarDay(`${year}-${stage.reference_date}`) - origin;
-      return [stage.name === '收获' ? '生育期结束' : stage.name, offset + 1,
-        calendarISO(calendarDay(planted.value) + offset)];
-    }),
+  const stages = stageValues(crop), days = Object.values(stages);
+  const lastWeather = weatherBounds[year]?.last;
+  const errors = [];
+  Object.entries(stages).forEach(([key, dap]) => {
+    const valid = Number.isInteger(dap) && dap >= 1 && dap <= 366;
+    const iso = valid ? calendarISO(calendarDay(planted.value) + dap - 1) : '';
+    box.querySelector(`[data-stage-date="${key}"]`).textContent = iso || '请输入有效整数';
+    if (iso && lastWeather && iso > lastWeather) errors.push(`推算日期${iso}晚于气象数据最后一天${lastWeather}，请缩短播种后天数或补充气象数据。`);
   });
+  if (days.some((d, i) => !Number.isInteger(d) || d < 1 || d > 366 || (i && d <= days[i-1]))) errors.push('各阶段天数须为1至366的整数，并依次递增。');
+  const harvest = calendarISO(calendarDay(planted.value) + days[days.length-1] - 1);
+  if (days[days.length-1] - 1 < agronomyConfig.min_season_days) errors.push(`整个生育期至少${agronomyConfig.min_season_days}天。`);
+  if (harvest > calendarISO(end)) errors.push(`生育期结束不得晚于模拟范围末日${calendarISO(end)}。`);
   const stagesInput = parameterValues(crop, 'phenology');
   if (Object.keys(stagesInput).length) {
-    const actual = el('div', 'calendar-stages');
-    box.appendChild(el('div', 'hint', '本次模型物候参数（DAP 为经过天数，参考旬期见上表）'));
-    box.appendChild(actual);
+    const actual = $('#' + crop + 'ModelStages');
     renderTable(actual, {columns:['模型阶段','DAP','推算日期'], rows:agronomyConfig.phenology_spec[crop].map(spec =>
       [spec.label, stagesInput[spec.key], calendarISO(calendarDay(planted.value) + stagesInput[spec.key])])});
+    Object.values(stagesInput).forEach(dap => {
+      if (!Number.isFinite(dap)) return;
+      const iso = calendarISO(calendarDay(planted.value) + dap);
+      if (lastWeather && iso > lastWeather) errors.push(`模型物候推算日期${iso}晚于气象数据最后一天${lastWeather}。`);
+      if (dap >= days[days.length-1] - 1) errors.push('模型物候期天数须短于整个生育期。');
+    });
   }
+  errorBox.textContent = errors[0] || '';
+  return errorBox.textContent;
 }
 
 function syncPlantingYear(reset = false) {
@@ -250,6 +298,8 @@ function agronomyRunOptions(crop) {
     drying_start_dap: Number($('#riceDryingStart').value), drying_days: Number($('#riceDryingDays').value), cold_events: []
   }};
   selected.forEach(c => {
+    const calendarError = updateCropCalendar(c);
+    if (calendarError) {$('#' + c + 'CalendarStages').closest('details').open = true; throw new Error(calendarError);}
     const section = $('#' + c + 'Agronomy');
     const invalid = Array.from(section.querySelectorAll('input')).find(input => !input.checkValidity());
     if (invalid) {
@@ -270,6 +320,7 @@ function agronomyRunOptions(crop) {
       soil_cn: Number($('#' + c + 'SoilCN').value),
       growth: parameterValues(c, 'growth'),
       phenology: parameterValues(c, 'phenology'),
+      stage_days: stageValues(c),
     };
   });
   return payload;
@@ -327,6 +378,7 @@ async function loadYears() {
   try {
     const r = await api('/api/years');
     if (!r.ok) { $('#yearChips').innerHTML = `<span class="muted">读取失败：${escapeHtml(r.error)}</span>`; return; }
+    weatherBounds = r.bounds || {};
     fillYears(r.years, r.period);
   } catch (e) {
     $('#yearChips').innerHTML = `<span class="muted">读取失败：${escapeHtml(e.message)}</span>`;

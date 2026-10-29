@@ -68,6 +68,7 @@ def years(request: Request):
                              "error": f"{type(e).__name__}: {e}"})
     start_md, end_md = engine.weather_period()
     return {"ok": True, "years": ys,
+            "bounds": {str(y): engine.weather_bounds(y, who.get("user") or "") for y in ys},
             "period": f"{start_md.replace('/', '-')} ~ {end_md.replace('/', '-')}",
             "data_dir": str(engine.data_dir(who.get("user") or ""))}
 
@@ -139,6 +140,7 @@ class AgronomyReq(BaseModel):
     soil_cn: float | None = None
     growth: dict[str, Annotated[float, Field(strict=True)]] = Field(default_factory=dict)
     phenology: dict[str, Annotated[float, Field(strict=True)]] = Field(default_factory=dict)
+    stage_days: dict[str, Annotated[float, Field(strict=True)]] = Field(default_factory=dict)
 
 
 class RiceColdEvent(BaseModel):
@@ -184,7 +186,7 @@ def run(req: RunReq, request: Request):
                 if (value := getattr(req, c + "_agronomy")) is not None}
     try:
         engine.validate_run_settings(crops,options,req.rice_management.model_dump())
-        engine.validate_agronomy_settings(crops, req.year, agronomy)
+        engine.validate_agronomy_settings(crops, req.year, agronomy, owner=auth.viewer(request).get("user") or "")
     except ValueError as e:
         raise HTTPException(400,str(e)) from e
 

@@ -37,7 +37,7 @@ _booted = False
 _rs = None
 _wc = None
 
-VERSION = "1.15.2"
+VERSION = "1.15.3"
 
 # (内核绘图函数名, 输出文件名模板, 前端面板标题)
 FIG_SPECS = (
@@ -635,7 +635,23 @@ RICE_DEMO_GROWTH = dict(Kcb=1.30, LagAer=400., p_up2=.50)
 SINGLE_ZONE_PARAMETER_VERSION = "single-zone-demo-20261029"
 
 
-def validate_agronomy_settings(crops, year, options=None):
+def weather_bounds(year, owner=None):
+    import pandas as pd
+    from modules.atmosphere import _normalize_columns
+    path = weather_csv_path(year, owner)
+    if path is None:
+        raise ValueError(f"未找到{year}年气象数据")
+    frame = _normalize_columns(pd.read_csv(path, encoding="utf-8-sig"))
+    dates = pd.to_datetime(frame["Date"], errors="raise")
+    if dates.empty or dates.isna().any() or dates.duplicated().any() or len(dates) != (dates.max() - dates.min()).days + 1:
+        raise ValueError("气象数据日期须完整连续，且不能重复或缺失")
+    import hashlib
+    return dict(first=dates.min().date().isoformat(), last=dates.max().date().isoformat(),
+                sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+
+
+def validate_agronomy_settings(crops, year, options=None, owner=None):
+    import math
     _ensure()
     from config.simulation_settings import validate_settings
     from copy import deepcopy
@@ -643,12 +659,35 @@ def validate_agronomy_settings(crops, year, options=None):
     options = deepcopy(options or {})
     for crop in crops:
         item = options.setdefault(crop, {})
+        # Validate against the actual selected user's file, before queueing a job.
+        from datetime import date, timedelta
+        bounds = weather_bounds(year, owner)
+        planted = item.get("planting_date") or f"{year}-" + ("05-15" if crop == "rice" else "04-25")
+        try:
+            planted_day = date.fromisoformat(planted)
+            for group, offset in [(item.get("stage_days") or {}, -1), (item.get("phenology") or {}, 0)]:
+                for key, value in group.items():
+                    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= 10000:
+                        inferred = planted_day + timedelta(days=value + offset)
+                        if inferred.isoformat() > bounds["last"]:
+                            raise ValueError(f"阶段{key}推算日期{inferred}晚于气象数据最后一天{bounds['last']}，请缩短播种后天数或补充气象数据")
+        except (TypeError, OverflowError):
+            raise ValueError("请检查生育期日期与天数")
         if crop == "rice":
             item.setdefault("soil_type", "rice_demo")
         defaults = growth_defaults(crop) | (RICE_DEMO_GROWTH if crop == "rice" else {})
         item["growth"] = defaults | (item.get("growth") or {})
         item["phenology"] = phenology_defaults(crop) | (item.get("phenology") or {})
-    return validate_settings(crops, year, options)
+    result = validate_settings(crops, year, options)
+    for crop, item in result.items():
+        bounds = weather_bounds(year, owner)
+        if item["harvest_date"] > bounds["last"]:
+            raise ValueError(f"生育期结束日期{item['harvest_date']}晚于气象数据最后一天{bounds['last']}")
+        _, wc = _ensure()
+        if f"{year}-{wc.SIM_START_MD.replace('/', '-')}" < bounds["first"]:
+            raise ValueError(f"气象数据须覆盖模拟开始日{year}-{wc.SIM_START_MD.replace('/', '-')}，当前首日为{bounds['first']}")
+        item["weather_bounds"] = bounds
+    return result
 
 
 def agronomy_capabilities():
@@ -667,7 +706,7 @@ def agronomy_capabilities():
 
 def run(crops: list[str], year: int, out_dir: Path, progress=None,
         owner: str = "", irrigation_options=None, agronomy_options=None, rice_management=None) -> dict:
-    agronomy = validate_agronomy_settings(crops, year, agronomy_options)
+    agronomy = validate_agronomy_settings(crops, year, agronomy_options, owner=owner or None)
     from config.simulation_settings import use_settings
     with use_settings(agronomy):
         return _run_configured(crops, year, out_dir, progress, owner, irrigation_options, agronomy,  rice_management)

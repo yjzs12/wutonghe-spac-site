@@ -109,7 +109,7 @@ def capabilities():
 def validate_settings(crops, year, options=None):
     from config import wutonghe_config as wc
     from config.crop_params import get_crop_params
-    from config.crop_calendar import allocate_stages, MIN_SEASON_DAYS
+    from config.crop_calendar import allocate_stages, reference_calendar, MIN_SEASON_DAYS
     catalog = _soil_catalog()
     result = {}
     for crop in crops:
@@ -130,12 +130,33 @@ def validate_settings(crops, year, options=None):
         default_plant = wc.RICE_PLANTING_DATE if crop == "rice" else wc.CORN_PLANTING_DATE
         default_span = (date.fromisoformat(f"{year}-{end_md.replace('/', '-')}") -
                         date.fromisoformat(f"{year}-{default_plant.replace('/', '-')}")).days
+        stage_days = item.get("stage_days") or {}
+        reference = reference_calendar()["crops"][crop]
+        stages = [s for s in reference["stages"] if s["reference_date"] >= reference["planting_date"]]
+        if not isinstance(stage_days, dict) or set(stage_days) - {s["reference_date"] for s in stages}:
+            raise ValueError("生育期阶段须使用网站提供的阶段")
+        effective_days = {}
+        origin = date.fromisoformat(f"{year}-{reference['planting_date']}")
+        for stage in stages:
+            key = stage["reference_date"]
+            value = stage_days.get(key, (date.fromisoformat(f"{year}-{key}") - origin).days + 1)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or int(value) != value or not 1 <= value <= 366:
+                raise ValueError(f"{stage['name']}播种后天数须为1至366的整数")
+            effective_days[key] = int(value)
+        if effective_days[stages[0]["reference_date"]] != 1:
+            raise ValueError("播种/移栽当天须为第1天")
+        if any(b <= a for a, b in zip(effective_days.values(), list(effective_days.values())[1:])):
+            raise ValueError("各生育期阶段的播种后天数须依次递增")
+        if stage_days:
+            default_span = effective_days[stages[-1]["reference_date"]] - 1
         raw_harvest = item.get("harvest_date")
         if raw_harvest:
             try:
                 end = date.fromisoformat(raw_harvest)
             except (TypeError, ValueError) as exc:
                 raise ValueError("收获日期须为有效日期 YYYY-MM-DD") from exc
+            if stage_days and end != planted + timedelta(days=default_span):
+                raise ValueError("收获日期须与生育期结束天数推算日期一致")
         else:
             end = planted + timedelta(days=default_span)
         sim_end = date.fromisoformat(f"{year}-{wc.SIM_END_MD.replace('/', '-')}")
@@ -246,7 +267,9 @@ def validate_settings(crops, year, options=None):
             cfg["dz"] = [0.1] * round(depth * 10)
         result[crop] = dict(planting_date=planted.strftime("%m/%d"),
                             planting_date_iso=planted.isoformat(), harvest_date=end.isoformat(),
-                            calendar_stages=allocate_stages(crop, planted, end),
+                            calendar_stages=([dict(s, date=(planted + timedelta(days=effective_days[s['reference_date']] - 1)).isoformat()) for s in stages]
+                                             if stage_days else allocate_stages(crop, planted, end)),
+                            stage_days=dict(stage_days),
                             soil_type=key, soil_modified=modified, soil=cfg,
                             growth=dict(growth), phenology=dict(supplied_phenology))
     return result
