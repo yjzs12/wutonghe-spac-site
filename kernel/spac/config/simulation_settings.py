@@ -6,6 +6,7 @@ from contextvars import ContextVar
 from copy import deepcopy
 from datetime import date, timedelta
 from functools import lru_cache
+from pathlib import Path
 import math
 
 _active = ContextVar("spac_simulation_settings", default={})
@@ -59,8 +60,14 @@ def _soil_catalog():
         catalog[key] = dict(deepcopy(cfg), label=label, cn=get_evap_params(crop)["cn"],
                             source="本地格网估计与等效水力参数，待验证")
     demo = deepcopy(catalog["wutonghe_paddy"])
-    demo.update(name="水稻模拟演示土壤", label="水稻模拟演示土壤（当前默认）",
-                source="沿用原土壤水力参数；演示生理参数按次调整，未经田间率定", version="single-zone-demo-20261029")
+    import json
+    candidate = json.loads(Path(__file__).with_name("single_zone_rice.json").read_text(encoding="utf-8"))
+    demo.update(name="水稻ui-83模拟土壤", label="水稻ui-83模拟土壤（当前默认）",
+                layers=deepcopy(candidate["options"]["soil_layers"]),
+                source="单区ui-83模拟候选，未经田间率定；2025年满足数值目标，跨年未稳定达标", version="single-zone-ui83-20261029")
+    demo["compartments"] = [layer["depth"] / math.ceil(layer["depth"] / .1 - 1e-9)
+                            for layer in demo["layers"]
+                            for _ in range(math.ceil(layer["depth"] / .1 - 1e-9))]
     catalog["rice_demo"] = demo
     for key, label in SOIL_TYPES.items():
         soil = Soil(key, dz=[0.1] * (20 if key in ("Paddy", "ac_TunisLocal") else 10))

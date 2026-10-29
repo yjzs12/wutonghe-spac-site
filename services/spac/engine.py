@@ -37,7 +37,7 @@ _booted = False
 _rs = None
 _wc = None
 
-VERSION = "1.15.4"
+VERSION = "1.15.5"
 
 # (内核绘图函数名, 输出文件名模板, 前端面板标题)
 FIG_SPECS = (
@@ -639,8 +639,10 @@ def validate_run_settings(crops, irrigation_options=None, rice_management=None):
 
 
 # Scoped to single-zone entry points; shared kernel and fixed results keep their baselines.
-RICE_DEMO_GROWTH = dict(Kcb=1.30, LagAer=400., p_up2=.50)
-SINGLE_ZONE_PARAMETER_VERSION = "single-zone-demo-20261029"
+import json as _json
+_RICE_SINGLE_ZONE = _json.loads((KERNEL_DIR / "config/single_zone_rice.json").read_text(encoding="utf-8"))
+RICE_DEMO_GROWTH = _RICE_SINGLE_ZONE["options"]["growth"]
+SINGLE_ZONE_PARAMETER_VERSION = "single-zone-ui83-20261029"
 
 
 def weather_bounds(year, owner=None):
@@ -658,7 +660,7 @@ def weather_bounds(year, owner=None):
                 sha256=hashlib.sha256(path.read_bytes()).hexdigest())
 
 
-def validate_agronomy_settings(crops, year, options=None, owner=None):
+def validate_agronomy_settings(crops, year, options=None, owner=None, *, single_zone=True):
     import math
     _ensure()
     from config.simulation_settings import validate_settings
@@ -667,6 +669,8 @@ def validate_agronomy_settings(crops, year, options=None, owner=None):
     options = deepcopy(options or {})
     for crop in crops:
         item = options.setdefault(crop, {})
+        if crop == "rice" and single_zone and "stage_days" not in item and not item.get("harvest_date"):
+            item["stage_days"] = deepcopy(_RICE_SINGLE_ZONE["options"]["stage_days"])
         # Validate against the actual selected user's file, before queueing a job.
         from datetime import date, timedelta
         bounds = weather_bounds(year, owner)
@@ -682,10 +686,12 @@ def validate_agronomy_settings(crops, year, options=None, owner=None):
         except (TypeError, OverflowError):
             raise ValueError("请检查生育期日期与天数")
         if crop == "rice":
-            item.setdefault("soil_type", "rice_demo")
-        defaults = growth_defaults(crop) | (RICE_DEMO_GROWTH if crop == "rice" else {})
+            item.setdefault("soil_type", "rice_demo" if single_zone else "wutonghe_paddy")
+        rice_growth = RICE_DEMO_GROWTH if single_zone else dict(Kcb=1.30, LagAer=400., p_up2=.50)
+        defaults = growth_defaults(crop) | (rice_growth if crop == "rice" else {})
         item["growth"] = defaults | (item.get("growth") or {})
-        item["phenology"] = phenology_defaults(crop) | (item.get("phenology") or {})
+        ph_defaults = phenology_defaults(crop) | (_RICE_SINGLE_ZONE["options"]["phenology"] if crop == "rice" and single_zone else {})
+        item["phenology"] = ph_defaults | (item.get("phenology") or {})
     result = validate_settings(crops, year, options)
     for crop, item in result.items():
         bounds = weather_bounds(year, owner)
@@ -707,6 +713,10 @@ def agronomy_capabilities():
     from copy import deepcopy
     result["legacy_growth_defaults"] = deepcopy(result["growth_defaults"])
     result["growth_defaults"]["rice"].update(RICE_DEMO_GROWTH)
+    result["phenology_defaults"]["rice"].update(_RICE_SINGLE_ZONE["options"]["phenology"])
+    result["stage_days_defaults"] = {"rice": deepcopy(_RICE_SINGLE_ZONE["options"]["stage_days"]), "corn": {}}
+    result["rice_management_defaults"] = deepcopy(_RICE_SINGLE_ZONE["options"]["rice_management"])
+    result["rice_default_notice"] = _RICE_SINGLE_ZONE["description"]
     result["rice_stomatal_depletion_start_fraction"] = RICE_DEMO_GROWTH["p_up2"]
     result["parameter_version"] = SINGLE_ZONE_PARAMETER_VERSION
     return result
@@ -737,7 +747,7 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
                              ci_duration_drain_target_mm=None,awd_natural_drydown=True,
                              awd_ponding_limit_days=None,awd_ponding_limit_depth_mm=None,
                              awd_duration_drain_target_mm=None,pre_drying_days=3,
-                             drying_handoff=True,drying_min_days=5,recovery_budget_days=2) | (rice_management or {})
+                             drying_handoff=True,drying_min_days=5,recovery_budget_days=2) | _RICE_SINGLE_ZONE["options"]["rice_management"] | (rice_management or {})
     settings=validate_run_settings(crops,irrigation_options,rice_management)
     from config.soil_params import get_soil_config
     rice_soil=get_soil_config("rice") if "rice" in crops else None

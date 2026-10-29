@@ -1,0 +1,95 @@
+{
+  "id": "ui-83",
+  "options": {
+    "soil_layers": [
+      {
+        "depth": 0.2,
+        "SAT": 0.443,
+        "FC": 0.35718,
+        "PWP": 0.16,
+        "Ks": 4.113,
+        "penetrability": 100
+      },
+      {
+        "depth": 0.08,
+        "SAT": 0.413,
+        "FC": 0.33718,
+        "PWP": 0.166,
+        "Ks": 3.2,
+        "penetrability": 29.7
+      },
+      {
+        "depth": 0.32,
+        "SAT": 0.428,
+        "FC": 0.31718,
+        "PWP": 0.166,
+        "Ks": 8.041,
+        "penetrability": 62.4
+      },
+      {
+        "depth": 0.4,
+        "SAT": 0.428,
+        "FC": 0.30218,
+        "PWP": 0.166,
+        "Ks": 34.877,
+        "penetrability": 70
+      }
+    ],
+    "growth": {
+      "LagAer": 10000000000.0,
+      "Kcb": 1.1575,
+      "Zmin": 0.193,
+      "Zmax": 0.467,
+      "p_up2": 0.32,
+      "p_lo2": 1.0,
+      "p_up1": 0.0496,
+      "p_lo1": 0.4114,
+      "p_up3": 0.6114,
+      "p_lo3": 1.0,
+      "p_up4": 0.7079,
+      "p_lo4": 1.0,
+      "fshape_w2": 2.522,
+      "CCx": 0.883,
+      "CGC_CD": 0.0913,
+      "CDC_CD": 0.083,
+      "PlantPop": 277339,
+      "SeedSize": 5.785,
+      "WP": 18.784,
+      "HI0": 0.4415,
+      "Tbase": 7.263,
+      "Tupp": 29.483,
+      "Tmin_up": 7.789,
+      "Tmin_lo": 2.831,
+      "Tmax_up": 34.788,
+      "Tmax_lo": 40.927
+    },
+    "phenology": {
+      "EmergenceCD": 5,
+      "MaxRootingCD": 46,
+      "HIstartCD": 76,
+      "SenescenceCD": 100
+    },
+    "plant_md": "05-15",
+    "stage_days": {
+      "05-15": 1,
+      "06-05": 23,
+      "07-05": 49,
+      "07-25": 70,
+      "08-05": 84,
+      "08-15": 95,
+      "09-05": 114,
+      "09-15": 125,
+      "09-25": 137
+    },
+    "rice_management": {
+      "control_depth_m": 0.3,
+      "stop_days": 7,
+      "regreen_days": 15,
+      "tillering_peak_dap": 35,
+      "drying_start_dap": 48,
+      "drying_days": 6,
+      "cold_events": []
+    }
+  },
+  "description": "当前默认采用ui-83模拟候选：仅2025年满足本次产量条件，SWI与CF产量几乎并列，2023、2024、2026年未稳定达标；未经田间率定。"
+}

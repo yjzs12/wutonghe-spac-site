@@ -213,7 +213,7 @@ def prepare(req, owner):
                 agronomy["planting_date"] = req[crop+"_planting_date"]
             if req.get(crop+"_harvest_date"):
                 agronomy["harvest_date"] = req[crop+"_harvest_date"]
-            engine.validate_agronomy_settings([crop], req["year"], {crop: agronomy})
+            engine.validate_agronomy_settings([crop], req["year"], {crop: agronomy}, single_zone=False)
             items.append(dict(grid_id=key, crop=crop, crop_area_ha=area,
                 soil_source=soil["source"], soil_status=soil["status"], agronomy=agronomy))
         if not cls or cls.get("coverage_fraction", 0) == 0:
@@ -233,7 +233,7 @@ def simulate(crop, year, agronomy, out_dir, management):
     engine.bootstrap()
     rs, wc = engine._ensure()
     from config.simulation_settings import use_settings
-    validated = engine.validate_agronomy_settings([crop], year, {crop: agronomy})
+    validated = engine.validate_agronomy_settings([crop], year, {crop: agronomy}, single_zone=False)
     previous_out = rs.OUTPUT_DIR
     rs.OUTPUT_DIR = str(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

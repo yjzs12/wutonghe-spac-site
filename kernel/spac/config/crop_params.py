@@ -224,7 +224,7 @@ PARAMETER_GROUPS = [
     dict(key="temperature", label="温度胁迫参数", keys=["Tbase", "Tupp", "Tmin_up", "Tmin_lo", "Tmax_up", "Tmax_lo"]),
 ]
 _EXTRA_SPEC = [
-    dict(key="LagAer", label="耐淹响应时间（d）", hint="模型内置 LagAer；数值越小，持续有水层时蒸腾受限越早。水稻演示默认400d，非田间耐淹实测值", min=1, max=1e10, step=1),
+    dict(key="LagAer", label="通气与水层胁迫参数 LagAer", hint="当前水稻默认1e10表示关闭原生通道，不代表实际耐淹天数；有限值会改变有水层时的蒸腾响应", min=1, max=1e10, step=1),
     dict(key="PlantPop", label="种植密度（株/ha）", hint="与单苗面积共同决定初始冠层", min=1000, max=1000000, step=1),
     dict(key="SeedSize", label="单苗投影面积（cm²）", hint="初始冠层=密度×单苗面积×10⁻⁸", min=.1, max=50, step=.1),
     dict(key="Zmin", label="最小根深（m）", hint="须不大于最大根深", min=.05, max=1.2, step=.01),

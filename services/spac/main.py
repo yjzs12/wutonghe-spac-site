@@ -151,12 +151,12 @@ class RiceColdEvent(BaseModel):
 
 
 class RiceManagement(BaseModel):
-    control_depth_m: float = Field(.20, ge=.05, le=1., allow_inf_nan=False)
+    control_depth_m: float = Field(.30, ge=.05, le=1., allow_inf_nan=False)
     stop_days: int = Field(7, ge=7, le=15)
-    regreen_days: int = Field(17, ge=1, le=40)
-    tillering_peak_dap: int = Field(33, ge=2, le=70)
+    regreen_days: int = Field(15, ge=1, le=40)
+    tillering_peak_dap: int = Field(35, ge=2, le=70)
     drying_start_dap: int = Field(48, ge=3, le=75)
-    drying_days: int = Field(7, ge=5, le=7)
+    drying_days: int = Field(6, ge=5, le=7)
     cold_events: list[RiceColdEvent] = Field(default_factory=list)
 
 
@@ -182,7 +182,7 @@ def run(req: RunReq, request: Request):
         raise HTTPException(400, "crop 只能是 rice / corn / both")
     options={c:{"profile":getattr(req,c+"_profile"),"coefficient":getattr(req,c+"_coefficient"),
                 "application_efficiency_pct":getattr(req,c+"_application_efficiency_pct")} for c in crops}
-    agronomy = {c: value.model_dump(exclude_none=True) for c in crops
+    agronomy = {c: value.model_dump(exclude_none=True, exclude_unset=True) for c in crops
                 if (value := getattr(req, c + "_agronomy")) is not None}
     try:
         engine.validate_run_settings(crops,options,req.rice_management.model_dump())

@@ -83,7 +83,7 @@ async function loadAgronomySettings() {
         </div>
         <button class="btn btn-sm" type="button" id="${crop}SoilReset">恢复所选土壤预设</button>
       </details>`;
-    section.appendChild(el('div', 'hint', crop === 'rice' ? '当前使用模拟演示默认参数，可自行调整各类参数。' : '作物参数可展开修改，用于模拟试验。'));
+    section.appendChild(el('div', 'hint', crop === 'rice' ? (agronomyConfig.rice_default_notice || '当前使用模拟候选参数，可自行调整各类参数。') : '作物参数可展开修改，用于模拟试验。'));
     box.appendChild(section);
     const select = $('#' + crop + 'SoilType');
     Object.entries(agronomyConfig.soils).forEach(([key, p]) => {
@@ -98,6 +98,10 @@ async function loadAgronomySettings() {
     planted.addEventListener('input', () => updateCropCalendar(crop));
     renderSoilEditor(crop);
     renderParameterEditors(crop);
+  });
+  Object.entries(agronomyConfig.rice_management_defaults || {}).forEach(([key, value]) => {
+    const id = {control_depth_m:'riceControlDepth', stop_days:'riceStopDays', regreen_days:'riceRegreenDays', tillering_peak_dap:'riceTilleringPeak', drying_start_dap:'riceDryingStart', drying_days:'riceDryingDays'}[key];
+    if (id) $('#' + id).value = String(value);
   });
   syncPlantingYear(true);
   syncCropSections();
@@ -139,7 +143,7 @@ function renderParameterEditors(crop, saved = {}) {
   const section = $('#' + crop + 'Agronomy');
   section.querySelectorAll('.parameter-editor').forEach(node => node.remove());
   const groups = [...agronomyConfig.parameter_groups, {key: 'phenology', label: '物候参数'}];
-  renderStageEditor(crop, saved.stage_days || {});
+  renderStageEditor(crop, saved.stage_days ?? null);
   groups.forEach(group => {
     const phenology = group.key === 'phenology';
     const specs = phenology ? agronomyConfig.phenology_spec[crop]
@@ -185,10 +189,11 @@ function stageValues(crop) {
     .map(input => [input.dataset.stageKey, Number(input.value)]));
 }
 
-function renderStageEditor(crop, saved = {}) {
+function renderStageEditor(crop, saved = null) {
   const box = $('#' + crop + 'CalendarStages');
   const ref = agronomyConfig.calendar.crops[crop];
   const stages = ref.stages.filter(s => s.reference_date >= ref.planting_date);
+  saved = saved ?? agronomyConfig.stage_days_defaults?.[crop] ?? {};
   box.replaceChildren();
   box.appendChild(el('div', 'hint', '播种/移栽当天为第1天；推算日期自动计算。修改后的阶段参与本次模拟，生育期结束决定收获日期。'));
   const table = document.createElement('table');
