@@ -283,18 +283,23 @@ def _corn_find_optimal(summary: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _rice_optimal_row(sub):
+    from modules.irrigation import RICE_LABELS
+    pool = sub[sub["灌溉方案"].isin(RICE_LABELS)].copy()
+    if len(pool) != len(RICE_LABELS) or pool["灌溉方案"].nunique() != len(RICE_LABELS):
+        raise ValueError("水稻四制度结果不完整，无法选取最优制度")
+    if not np.isfinite(pool[["最终籽粒产量(t/ha)", "累计灌溉量(mm)"]].to_numpy(dtype=float)).all():
+        raise ValueError("水稻产量或灌水量无效")
+    return pool.sort_values(["最终籽粒产量(t/ha)", "累计灌溉量(mm)"],
+                            ascending=[False, True], kind="stable").iloc[0]
+
+
 def _rice_find_optimal(summary: pd.DataFrame) -> pd.DataFrame:
     """Choose among the four supplied regimes by yield, then net irrigation."""
     from modules.irrigation import RICE_LABELS
     optimal_rows = []
     for crop_cn, sub in summary.groupby("作物"):
-        pool = sub[sub["灌溉方案"].isin(RICE_LABELS)].copy()
-        if len(pool) != len(RICE_LABELS) or pool["灌溉方案"].nunique() != len(RICE_LABELS):
-            raise ValueError("水稻四制度结果不完整，无法选取最优制度")
-        if not np.isfinite(pool[["最终籽粒产量(t/ha)", "累计灌溉量(mm)"]].to_numpy(dtype=float)).all():
-            raise ValueError("水稻产量或灌水量无效")
-        optimal = pool.sort_values(["最终籽粒产量(t/ha)", "累计灌溉量(mm)"],
-                                  ascending=[False, True], kind="stable").iloc[0]
+        optimal = _rice_optimal_row(sub)
         y_max = float(optimal["最终籽粒产量(t/ha)"])
         optimal_rows.append({
             "作物": crop_cn,
@@ -367,7 +372,7 @@ def plot_yield_irrigation_curve(results: List[SimulationResult], crop: str,
 
     # 曲线标签按作物类型选择
     curve_label = ("水层调控方案产量" if crop == "rice" else "墒情控制方案产量")
-    ax1.plot(irr_opt, yld_opt, "o" if crop == "rice" else "o-", color="seagreen", linewidth=2.2, markersize=10,
+    ax1.plot(irr_opt, yld_opt, "o-", color="seagreen", linewidth=2.2, markersize=10,
              label=curve_label, zorder=3)
     ax1.set_xlabel("累计净灌溉量（mm）", fontsize=12)
     ax1.set_ylabel("稻谷产量（14.5%含水率，t/ha）" if crop == "rice" else "干籽粒产量 (t/ha)", color="seagreen", fontsize=12)
@@ -376,9 +381,9 @@ def plot_yield_irrigation_curve(results: List[SimulationResult], crop: str,
 
     # 标注每个点的实际灌水量（相邻点距离过近时上下交替，避免文字重叠）
     for i, (x, y, lab) in enumerate(zip(irr_opt, yld_opt, labels_opt)):
-        too_close = i > 0 and abs(x - irr_opt[i - 1]) < 40
         ax1.annotate(lab, (x, y), textcoords="offset points",
-                     xytext=(8, -18 if too_close else 8), fontsize=8)
+                     xytext=((-55, -35) if i % 2 == 0 else (15, 30)), fontsize=8,
+                     arrowprops=dict(arrowstyle="-", color="#888", lw=.6, shrinkB=6))
 
     # 水稻纵轴从零开始，不能把湿年微小波动放大成显著增产。
     if crop == "rice":
@@ -392,12 +397,13 @@ def plot_yield_irrigation_curve(results: List[SimulationResult], crop: str,
 
     # 次轴: WUE
     ax2 = ax1.twinx()
-    ax2.plot(irr_opt, wue_opt, "s" if crop == "rice" else "s--", color="coral", linewidth=1.5, markersize=7,
+    ax2.plot(irr_opt, wue_opt, "s--", color="coral", linewidth=1.5, markersize=7,
              label="WUE", alpha=0.7)
     ax2.set_ylabel("水分利用效率 (kg/m³)", color="coral", fontsize=12)
     ax2.tick_params(axis="y", labelcolor="coral")
 
     ax1.legend(loc="upper left", fontsize=10)
+    ax2.legend(loc="upper right", fontsize=10)
     scheme_desc = "水层调控" if crop == "rice" else "墒情控制"
     plt.title(f"{CROP_CN[crop]} 模拟产量-灌水量响应曲线（{sim_year} 年, {scheme_desc}）",
               fontsize=14, fontweight="bold")
@@ -422,7 +428,7 @@ def plot_multi_crop_comparison(all_summary: pd.DataFrame, sim_year: int, savepat
         if opt_sub.empty:
             continue
         ax.plot(opt_sub["累计灌溉量(mm)"], opt_sub["最终籽粒产量(t/ha)"],
-                markers.get(crop_cn, "o") + ("" if crop_cn == "水稻" else "-"),
+                markers.get(crop_cn, "o") + "-",
                 color=colors.get(crop_cn, "blue"),
                 linewidth=2, markersize=9, label=crop_cn + ("（14.5%水分）" if crop_cn == "水稻" else "（干重）"), alpha=0.85)
 
@@ -438,14 +444,22 @@ def plot_multi_crop_comparison(all_summary: pd.DataFrame, sim_year: int, savepat
     print(f"  已保存: {savepath}")
 
 
+def select_water_result(results, crop):
+    """Use the same winner as the summary: highest yield, then least net water."""
+    rows = [r for r in results if r.crop == crop]
+    if crop == "rice":
+        table = pd.DataFrame([{"灌溉方案": r.label, **{key: r.summary[key] for key in
+                              ("最终籽粒产量(t/ha)", "累计灌溉量(mm)")}} for r in rows],
+                             columns=["灌溉方案", "最终籽粒产量(t/ha)", "累计灌溉量(mm)"])
+        name = _rice_optimal_row(table)["灌溉方案"]
+        return next(r for r in rows if r.label == name)
+    return next((r for r in rows if "墒情优化" in r.summary), None)
+
+
 def plot_water_dynamics(results: List[SimulationResult], crop: str,
                           sim_year: int, savepath: str):
-    """绘制水分动态图(正常灌溉对照方案)。"""
-    # 使用正常灌溉对照方案(与冠层/干物质曲线数据来源一致)
-    target = next(
-        (r for r in results if r.crop == crop and
-         ((crop == "corn" and "墒情优化" in r.summary) or
-          (crop == "rice" and r.label == "常规淹水"))), None)
+    """绘制本次模拟最优灌溉方案的水分动态。"""
+    target = select_water_result(results, crop)
     if target is None:
         return
 
@@ -460,7 +474,7 @@ def plot_water_dynamics(results: List[SimulationResult], crop: str,
         ax1.plot(d["模拟日期"], d["第1层土壤含水率"], color="saddlebrown",
                  label="第1层土壤含水率", linewidth=1.2)
         ax1.set_ylabel("第1层土壤含水率 (vol)")
-    ax1.set_title(f"{CROP_CN[crop]} {target.label} 水分动态（{sim_year} 年）")
+    ax1.set_title(f"{CROP_CN[crop]} 最优方案：{target.label} 水分动态（{sim_year} 年）")
     ax1.legend(loc="upper right")
     ax1.grid(True, alpha=0.3)
     ax2.plot(d["模拟日期"], d["蒸腾蒸发量(mm)"], color="seagreen",

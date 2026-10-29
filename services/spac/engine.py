@@ -37,7 +37,7 @@ _booted = False
 _rs = None
 _wc = None
 
-VERSION = "1.15.3"
+VERSION = "1.15.4"
 
 # (内核绘图函数名, 输出文件名模板, 前端面板标题)
 FIG_SPECS = (
@@ -371,8 +371,7 @@ def water_requirement(results, crop: str, year: int,
     from modules.crop_sim import build_crop
     _PLANTING = {c: planting_date(c) for c in ("rice", "corn")}
 
-    ck = next((r for r in results
-               if r.crop == crop and ((crop == "corn" and "墒情优化" in r.summary) or (crop == "rice" and r.label == "常规淹水"))), None)
+    ck = rs.select_water_result(results, crop)
     if ck is None:
         return None
 
@@ -568,6 +567,15 @@ def _plot_growth_curve(results, crop: str, crop_cn: str, year: int,
     if ck is not None:
         ax.plot(ck.daily["模拟日期"], ck.daily[column], "-", color="#d62828",
                 lw=2.2, label=ck.label, zorder=5)
+
+    if crop == "rice" and column == "冠层覆盖度(%)" and len(rows) > 1:
+        first = rows[0].daily
+        overlap = all(first["模拟日期"].equals(r.daily["模拟日期"]) and
+                      np.allclose(first[column], r.daily[column], rtol=0, atol=1e-10)
+                      for r in rows[1:])
+        if overlap:
+            ax.text(.02, .97, f"{len(rows)}种制度的冠层计算值相同，曲线重合", transform=ax.transAxes,
+                    va="top", fontsize=9, bbox=dict(facecolor="white", alpha=.85, edgecolor="#ddd"))
 
     # 作物进入田间日期（水稻移栽 / 玉米播种），之前为空转段
     from config.simulation_settings import planting_date
@@ -879,7 +887,7 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
               .to_csv(out_dir / wr_daily_csv, index=False, encoding="utf-8-sig")
         water_req = {
             "year": year,
-            "basis": "水稻常规淹水CF；玉米模型最优方案",
+            "basis": "水稻、玉米均采用本次模型最优方案",
             "crops": [wr for wr, _ in wr_crops],
             "csv": wr_csv,
             "daily_csv": wr_daily_csv,
