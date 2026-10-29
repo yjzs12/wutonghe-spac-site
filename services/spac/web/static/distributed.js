@@ -197,16 +197,29 @@
       if (settings) html += `<details><summary>${cropNames[crop]} · 计算输入</summary><p>种植 ${escapeHtml(settings.planting_date_iso)} · 生育期结束 ${escapeHtml(settings.harvest_date)}</p>
         ${profileTable(cropNames[crop], {soil_layers:settings.soil.layers})}<p class="hint">气象文件 ${escapeHtml(data.inputs[crop].weather_file)} · 灌溉施用效率 90%</p></details>`;
     }
-    html += '<div id="distDaily"></div>';
+    html += '<div id="distDaily" class="dist-daily" aria-live="polite"></div>';
     $('#distDetail').innerHTML = html;
     $('#distDetail').querySelectorAll('[data-scheme]').forEach(button => button.addEventListener('click',guarded(async () => {
       const crop = button.dataset.crop, scheme = button.dataset.scheme;
       const dailyToken = ++detailId;
-      const r = await request(`/api/distributed/fixed/daily/${encodeURIComponent(id)}?year=${requestedYear}&crop=${crop}&scheme=${scheme}`);
-      if (dailyToken !== detailId || year !== requestedYear || focused !== id) return;
       const box = $('#distDaily');
-      box.innerHTML = `<h3>${cropNames[crop]} · ${escapeHtml(schemeNames[scheme] || scheme)} · 逐日结果</h3><a class="btn btn-sm" href="${BASE}/api/distributed/fixed/download/${encodeURIComponent(id)}?year=${requestedYear}&crop=${crop}&scheme=${scheme}">下载逐日 CSV</a><div class="dist-table-wrap" style="max-height:420px" id="distDailyTable"></div>`;
-      renderTable($('#distDailyTable'),r.table);
+      const current = () => dailyToken === detailId && year === requestedYear && focused === id;
+      button.disabled = true; button.textContent = '读取中…';
+      box.setAttribute('aria-busy', 'true');
+      box.innerHTML = '<p role="status">正在读取逐日数据…</p>';
+      box.scrollIntoView({block:'start'});
+      try {
+        const r = await request(`/api/distributed/fixed/daily/${encodeURIComponent(id)}?year=${requestedYear}&crop=${crop}&scheme=${scheme}`);
+        if (!current()) return;
+        box.innerHTML = `<h3>${cropNames[crop]} · ${escapeHtml(schemeNames[scheme] || scheme)} · 逐日结果</h3><a class="btn btn-sm" href="${BASE}/api/distributed/fixed/download/${encodeURIComponent(id)}?year=${requestedYear}&crop=${crop}&scheme=${scheme}">下载逐日 CSV</a><div class="dist-table-wrap" style="max-height:420px" id="distDailyTable"></div>`;
+        renderTable($('#distDailyTable'),r.table);
+        box.scrollIntoView({block:'start'});
+      } catch (e) {
+        if (current()) box.innerHTML = `<p role="alert">读取失败：${escapeHtml(e.message)}。请点击“逐日数据”重试。</p>`;
+      } finally {
+        if (current()) box.setAttribute('aria-busy', 'false');
+        button.disabled = false; button.textContent = '逐日数据';
+      }
     })));
   }
 
