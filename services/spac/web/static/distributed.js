@@ -4,8 +4,7 @@
   let geo = null, features = [], paths = [], scale = 1, offsetX = 0, offsetY = 0;
   let year = null, mapVals = {}, focused = null, years = [], requestId = 0, detailId = 0;
   const canvas = $('#distMap'), ctx = canvas.getContext('2d');
-  const colors = {rice: '#59bd91', corn: '#d1b962', other: '#71828b',
-                  missing: '#273c46', none: '#1b2b33'};
+  const colors = {rice: '#59bd91', corn: '#d1b962', other: '#71828b'};
   const cropNames = {rice: '水稻', corn: '玉米', other: '其他', unknown: '未分类'};
   const schemeNames = {CF:'常规淹水', SWI:'浅湿灌溉', AWD:'干湿交替', CI:'控制灌溉', RAIN:'雨养'};
   const number = (v, d = 2) => (v == null || !Number.isFinite(Number(v)) ? '—'
@@ -65,7 +64,9 @@
       <th>作物</th><th>制度</th><th>格数</th><th>已算面积 ha</th><th>净灌水 mm</th><th>已算净水量 m³</th><th>已算总产 t</th><th>单产 t/ha</th>
       </tr></thead><tbody>${rows}</tbody></table></div><p class="hint">${escapeHtml(coverage)}</p>
       <a class="btn btn-sm" href="${BASE}/api/distributed/fixed/summary.csv?year=${year}">下载汇总</a>`;
-    geo = map.geo; features = geo.features; mapVals = map.results || {};
+    geo = map.geo; mapVals = map.results || {};
+    features = geo.features.filter(f =>
+      ['rice','corn','other'].includes(f.properties.dominant_crop) && hasResult(f));
     rebuildPaths(); fitMap();
     notice(`${year} 年 · 已完成 ${number(summary.success,0)} / ${number(summary.eligible,0)} 个格网作物记录${summary.failed ? ` · 失败${summary.failed}` : ''}`);
   }
@@ -80,8 +81,8 @@
     for (const f of features) for (const p of polygons(f)) for (const ring of p) for (const c of ring) {
       const [x, y] = project(c); xs.push(x); ys.push(y);
     }
-    bounds = [xs.reduce((a, b) => Math.min(a, b), Infinity), ys.reduce((a, b) => Math.min(a, b), Infinity),
-              xs.reduce((a, b) => Math.max(a, b), -Infinity), ys.reduce((a, b) => Math.max(a, b), -Infinity)];
+    bounds = xs.length ? [xs.reduce((a, b) => Math.min(a, b), Infinity), ys.reduce((a, b) => Math.min(a, b), Infinity),
+                         xs.reduce((a, b) => Math.max(a, b), -Infinity), ys.reduce((a, b) => Math.max(a, b), -Infinity)] : null;
     paths = features.map(feature => {
       const path = new Path2D();
       polygons(feature).forEach(poly => poly.forEach(ring => {
@@ -92,11 +93,14 @@
     });
   }
 
+  function hasResult(f, crop) {
+    const crops = mapVals[f.id] || [];
+    return crop ? crops.includes(crop) : crops.some(c => c === 'rice' || c === 'corn');
+  }
+
   function visible(f) {
     const mode = $('#distFilter').value;
-    if (mode === 'all') return true;
-    const areas = f.properties.areas_ha || {};
-    return (areas[mode] || 0) > 1e-8;
+    return hasResult(f, mode === 'all' ? null : mode);
   }
 
   function draw() {
@@ -105,29 +109,24 @@
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.clearRect(0, 0, w, h);
     if (!geo) return;
     ctx.translate(offsetX, offsetY); ctx.scale(scale, scale);
-    paths.forEach(({feature: f, path}) => {
-      if (!visible(f)) return;
-      const has = !!mapVals[f.id];
-      let color = colors[f.properties.dominant_crop] || colors.missing;
-      if (!has) color = colors.none;
-      ctx.fillStyle = color;
-      ctx.globalAlpha = has ? 1 : 0.55;
+    const displayed = paths.filter(p => visible(p.feature));
+    displayed.forEach(({feature: f, path}) => {
+      ctx.fillStyle = colors[f.properties.dominant_crop];
       ctx.fill(path, 'evenodd');
-      ctx.globalAlpha = 1;
       ctx.lineWidth = 0.3 / scale; ctx.strokeStyle = '#0c1e24'; ctx.stroke(path);
       if (f.id === focused) { ctx.strokeStyle = '#ffd47a'; ctx.lineWidth = 2.8 / scale; ctx.stroke(path); }
     });
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const legend = [['水稻', colors.rice], ['玉米', colors.corn], ['其他', colors.other],
-                    ['未分类', colors.missing], ['无结果', colors.none]];
-    $('#distLegend').innerHTML = legend.map(([n, c]) =>
-      `<span><i class="dist-swatch" style="background:${c}"></i>${escapeHtml(n)}</span>`).join('');
+    const cropsShown = new Set(displayed.map(p => p.feature.properties.dominant_crop));
+    const legend = [['rice', '水稻'], ['corn', '玉米'], ['other', '其他']];
+    $('#distLegend').innerHTML = legend.filter(([crop]) => cropsShown.has(crop)).map(([crop, n]) =>
+      `<span><i class="dist-swatch" style="background:${colors[crop]}"></i>${escapeHtml(n)}</span>`).join('');
     $('#distMapStats').textContent =
-      `${features.length.toLocaleString()} 格 · 灌区面积 ${number(features.reduce((s, f) => s + f.properties.area_ha, 0))} ha`;
+      `显示 ${displayed.length.toLocaleString()} 格 · 格网面积 ${number(displayed.reduce((s, p) => s + p.feature.properties.area_ha, 0))} ha`;
   }
 
   function fitMap() {
-    if (!bounds) return;
+    if (!bounds) { draw(); return; }
     scale = Math.min((canvas.clientWidth - 42) / (bounds[2] - bounds[0]),
                      (canvas.clientHeight - 42) / (bounds[3] - bounds[1]));
     offsetX = (canvas.clientWidth - scale * (bounds[0] + bounds[2])) / 2;
@@ -234,9 +233,10 @@
   $('#distFit').addEventListener('click', fitMap);
   $('#distLocate').addEventListener('click', guarded(async () => {
     const id = $('#distGridSearch').value.trim();
-    if (!features.some(f => f.id === id)) throw new Error('未找到该格网 ID');
-    await showDetail(id);
     const f = features.find(f => f.id === id);
+    if (!f) throw new Error('该年份没有该格网的可显示结果');
+    if (!visible(f)) $('#distFilter').value = 'all';
+    await showDetail(id);
     const p = project([f.properties.longitude, f.properties.latitude]);
     scale = Math.max(scale, 15000);
     offsetX = canvas.clientWidth / 2 - scale * p[0];
