@@ -53,11 +53,15 @@ def _soil_catalog():
     from modules.engine_core import Soil
     catalog = {}
     for key, crop, cfg, label in (
-        ("wutonghe_paddy", "rice", PADDY_SOIL, "梧桐河水稻土（当前默认）"),
+        ("wutonghe_paddy", "rice", PADDY_SOIL, "梧桐河水稻土（原始基线）"),
         ("wutonghe_dryland", "corn", DRYLAND_SOIL, "梧桐河旱田白浆土（当前默认）"),
     ):
         catalog[key] = dict(deepcopy(cfg), label=label, cn=get_evap_params(crop)["cn"],
                             source="本地格网估计与等效水力参数，待验证")
+    demo = deepcopy(catalog["wutonghe_paddy"])
+    demo.update(name="水稻模拟演示土壤", label="水稻模拟演示土壤（当前默认）",
+                source="沿用原土壤水力参数；演示生理参数按次调整，未经田间率定", version="single-zone-demo-20261029")
+    catalog["rice_demo"] = demo
     for key, label in SOIL_TYPES.items():
         soil = Soil(key, dz=[0.1] * (20 if key in ("Paddy", "ac_TunisLocal") else 10))
         layers = []
@@ -79,7 +83,8 @@ def _soil_catalog():
 
 def capabilities():
     from config import wutonghe_config as wc
-    from config.crop_params import get_crop_params
+    from config.crop_params import (get_crop_params, GROWTH_SPEC, PHENOLOGY_SPEC,
+                                    growth_defaults, phenology_defaults, PARAMETER_GROUPS)
     from config.crop_calendar import reference_calendar, MIN_SEASON_DAYS
     return dict(
         soils=deepcopy(_soil_catalog()),
@@ -93,6 +98,11 @@ def capabilities():
         min_soil_depth={c: round(get_crop_params(c)["Zmax"] + 0.1, 6) for c in ("rice", "corn")},
         harvest={"rice": wc.RICE_HARVEST_DATE.replace("/", "-"),
                  "corn": wc.CORN_HARVEST_DATE.replace("/", "-")},
+        parameter_groups=deepcopy(PARAMETER_GROUPS),
+        growth_spec={c: deepcopy(GROWTH_SPEC[c]) for c in ("rice", "corn")},
+        phenology_spec={c: deepcopy(PHENOLOGY_SPEC[c]) for c in ("rice", "corn")},
+        growth_defaults={c: growth_defaults(c) for c in ("rice", "corn")},
+        phenology_defaults={c: phenology_defaults(c) for c in ("rice", "corn")},
     )
 
 
@@ -162,7 +172,62 @@ def validate_settings(crops, year, options=None):
             if not 1/grid <= layer["depth"] <= 3 or abs(layer["depth"] * grid - round(layer["depth"] * grid)) > 1e-7:
                 raise ValueError("水稻层厚须按0.01m递增，玉米按0.1m递增；最大3m")
         depth = sum(layer["depth"] for layer in layers)
-        if depth + 1e-8 < get_crop_params(crop)["Zmax"] + 0.1 or depth > 3.0 + 1e-8:
+        # ---- 生长参数与物候期（用户可调：白名单 + 范围 + 单调性校验）----
+        from config.crop_params import GROWTH_SPEC, PHENOLOGY_SPEC
+        growth = item.get("growth") or {}
+        if not isinstance(growth, dict):
+            raise ValueError("生长参数须为键值对象")
+        spec_g = {s["key"]: s for s in GROWTH_SPEC[crop]}
+        for name, value in growth.items():
+            if name not in spec_g:
+                raise ValueError(f"未知生长参数：{name}")
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"{spec_g[name]['label']}须为有限数值")
+            if not spec_g[name]["min"] <= value <= spec_g[name]["max"]:
+                raise ValueError(f"{spec_g[name]['label']}须在{spec_g[name]['min']}–{spec_g[name]['max']}之间")
+        effective = get_crop_params(crop) | growth
+        from config.crop_params import solver_defaults
+        effective = solver_defaults(crop) | effective
+        for i in range(1, 5):
+            upper, lower = effective[f"p_up{i}"], effective[f"p_lo{i}"]
+            # Native all-1 boundary is the deployed no-stress configuration.
+            if upper >= lower and not (upper == lower == 1.):
+                raise ValueError(f"第{i}类水分胁迫起点须小于完全胁迫阈值")
+        for low, high in [("Zmin", "Zmax"), ("Tbase", "Tupp"), ("Tmin_lo", "Tmin_up"), ("Tmax_up", "Tmax_lo")]:
+            if effective[low] >= effective[high]:
+                raise ValueError(f"参数须满足 {low} < {high}")
+        if effective["PlantPop"] * effective["SeedSize"] * 1e-8 >= effective["CCx"]:
+            raise ValueError("密度与单苗面积对应的初始冠层须小于最大冠层覆盖度")
+        phenology = item.get("phenology") or {}
+        if not isinstance(phenology, dict):
+            raise ValueError("物候期须为键值对象")
+        spec_p = {s["key"]: s for s in PHENOLOGY_SPEC[crop]}
+        ordered = []
+        for name, value in phenology.items():
+            if name not in spec_p:
+                raise ValueError(f"未知物候阶段：{name}")
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"{spec_p[name]['label']}须为有限数值")
+            if not spec_p[name]["min"] <= value <= spec_p[name]["max"]:
+                raise ValueError(f"{spec_p[name]['label']}须在{spec_p[name]['min']}–{spec_p[name]['max']}天之间")
+        from config.crop_params import phenology_defaults
+        supplied_phenology = dict(phenology)
+        phenology = phenology_defaults(crop) | phenology
+        for stage in PHENOLOGY_SPEC[crop]:
+            if stage["key"] in phenology:
+                ordered.append((stage["key"], float(phenology[stage["key"]])))
+        # 只约束生物学上必须先后发生的链：出苗/返青 → 产量形成开始 → 冠层始衰 → 成熟。
+        # 最大根深在各作物上的实际时点不同（玉米晚于产量形成），不参与全序比较。
+        chain = [key for key in ("EmergenceCD", "HIstartCD", "SenescenceCD") if key in phenology]
+        values = [float(phenology[key]) for key in chain]
+        if any(b <= a for a, b in zip(values, values[1:])):
+            raise ValueError("物候期须满足：出苗/返青 < 产量形成开始 < 冠层始衰")
+        if "MaxRootingCD" in phenology and phenology["MaxRootingCD"] <= phenology.get("EmergenceCD", 0):
+            raise ValueError("最大根深天数须晚于出苗/返青")
+        if phenology and max(float(v) for v in phenology.values()) >= (end - planted).days:
+            raise ValueError("物候期天数须短于整个生育期")
+        zmax_effective = float(growth.get("Zmax") or get_crop_params(crop)["Zmax"])
+        if depth + 1e-8 < zmax_effective + 0.1 or depth > 3.0 + 1e-8:
             raise ValueError("土壤总深度须覆盖最大根深及0.1m底边界，且不超过3m")
         if not isinstance(cfg["cn"], (int, float)) or not math.isfinite(cfg["cn"]) or not 1 <= cfg["cn"] <= 100:
             raise ValueError("径流曲线数CN须在1至100之间")
@@ -182,5 +247,6 @@ def validate_settings(crops, year, options=None):
         result[crop] = dict(planting_date=planted.strftime("%m/%d"),
                             planting_date_iso=planted.isoformat(), harvest_date=end.isoformat(),
                             calendar_stages=allocate_stages(crop, planted, end),
-                            soil_type=key, soil_modified=modified, soil=cfg)
+                            soil_type=key, soil_modified=modified, soil=cfg,
+                            growth=dict(growth), phenology=dict(supplied_phenology))
     return result

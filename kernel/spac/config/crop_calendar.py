@@ -48,7 +48,11 @@ def active_reference_date(crop, md, year):
 
 
 def adjusted_crop_params(crop, params):
-    """Scale calibrated calendar events/durations along with the requested field season."""
+    """Scale calibrated calendar events/durations along with the requested field season.
+
+    If the user supplied explicit day-after-planting values (settings['phenology']),
+    those win over the proportional rescaling for the four DAP milestones.
+    """
     from config.simulation_settings import get_active
     settings = get_active(crop)
     if not settings:
@@ -61,12 +65,23 @@ def adjusted_crop_params(crop, params):
     span = (harvested - planted).days
     ratio = span / baseline
     result = dict(params)
-    for key in ("EmergenceCD", "MaxRootingCD", "SenescenceCD", "HIstartCD"):
-        result[key] = float(max(1, math.floor((params[key] - 1) * ratio + 0.5) + 1))
+    user_stages = settings.get("phenology") or {}
+    user_growth = settings.get("growth") or {}
+    dap_keys = ("EmergenceCD", "MaxRootingCD", "SenescenceCD", "HIstartCD")
+    for key in dap_keys:
+        if key in user_stages:
+            # Explicit DAP from the UI: use as-is, no proportional rescaling.
+            result[key] = float(max(1, min(int(round(float(user_stages[key]))), span - 1)))
+        else:
+            result[key] = float(max(1, math.floor((params[key] - 1) * ratio + 0.5) + 1))
     for key in ("FloweringCD", "YldFormCD"):
         result[key] = float(max(1, math.floor(params[key] * ratio + 0.5)))
     result["MaturityCD"] = float(span)
-    # Daily canopy growth/decline rates must follow the duration of the season too.
+    # Daily canopy growth/decline rates must follow the duration of the season too,
+    # unless the user pinned them explicitly.
     for key in ("CGC_CD", "CDC_CD"):
-        result[key] = params[key] / ratio
+        if key in user_growth:
+            result[key] = float(user_growth[key])
+        else:
+            result[key] = params[key] / ratio
     return result

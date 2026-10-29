@@ -22,6 +22,7 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
+from typing import Annotated
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -136,6 +137,8 @@ class AgronomyReq(BaseModel):
     soil_type: str
     soil_layers: list[SoilLayerReq] | None = None
     soil_cn: float | None = None
+    growth: dict[str, Annotated[float, Field(strict=True)]] = Field(default_factory=dict)
+    phenology: dict[str, Annotated[float, Field(strict=True)]] = Field(default_factory=dict)
 
 
 class RiceColdEvent(BaseModel):
@@ -237,7 +240,7 @@ def capabilities():
         "agronomy":engine.agronomy_capabilities(),
         "optimization_rule":"max_yield_then_min_irrigation",
         "rice_optimization_status":"four_regime_max_yield",
-        "rice_parameter_version":"wutonghe-rice-v6-20261023",
+        "rice_parameter_version":engine.SINGLE_ZONE_PARAMETER_VERSION,
     }
 
 

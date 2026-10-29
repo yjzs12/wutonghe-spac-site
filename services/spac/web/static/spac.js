@@ -65,7 +65,7 @@ async function loadAgronomySettings() {
     const name = crop === 'rice' ? '水稻' : '玉米';
     const section = el('fieldset', 'agronomy-section');
     section.id = crop + 'Agronomy';
-    section.innerHTML = `<legend>${name} · 种植与土壤</legend>
+    section.innerHTML = `<legend>${name} · 种植与模型参数</legend>
       <div class="field"><label for="${crop}PlantingDate">${name}${crop === 'rice' ? '移栽' : '播种'}日期</label>
         <input id="${crop}PlantingDate" type="date" required>
         <div class="hint">生育期日期随${crop === 'rice' ? '移栽' : '播种'}日期推算。</div></div>
@@ -82,6 +82,7 @@ async function loadAgronomySettings() {
         </div>
         <button class="btn btn-sm" type="button" id="${crop}SoilReset">恢复所选土壤预设</button>
       </details>`;
+    section.appendChild(el('div', 'hint', crop === 'rice' ? '当前使用模拟演示默认参数，可自行调整各类参数。' : '作物参数可展开修改，用于模拟试验。'));
     box.appendChild(section);
     const select = $('#' + crop + 'SoilType');
     Object.entries(agronomyConfig.soils).forEach(([key, p]) => {
@@ -95,6 +96,7 @@ async function loadAgronomySettings() {
     const planted = $('#' + crop + 'PlantingDate');
     planted.addEventListener('input', () => updateCropCalendar(crop));
     renderSoilEditor(crop);
+    renderParameterEditors(crop);
   });
   syncPlantingYear(true);
   syncCropSections();
@@ -131,6 +133,48 @@ function renderSoilEditor(crop, saved = null) {
   });
 }
 
+// Same layout and reset behavior as the soil editor; metadata comes from the solver.
+function renderParameterEditors(crop, saved = {}) {
+  const section = $('#' + crop + 'Agronomy');
+  section.querySelectorAll('.parameter-editor').forEach(node => node.remove());
+  const groups = [...agronomyConfig.parameter_groups, {key: 'phenology', label: '物候参数'}];
+  groups.forEach(group => {
+    const phenology = group.key === 'phenology';
+    const specs = phenology ? agronomyConfig.phenology_spec[crop]
+      : agronomyConfig.growth_spec[crop].filter(spec => group.keys.includes(spec.key));
+    const defaults = agronomyConfig[phenology ? 'phenology_defaults' : 'growth_defaults'][crop];
+    const values = {...defaults, ...(saved[phenology ? 'phenology' : 'growth'] || {})};
+    const details = el('details', 'soil-editor parameter-editor');
+    details.appendChild(el('summary', '', `展开并修改${group.label}`));
+    details.appendChild(el('div', 'hint', phenology ? '以移栽/播种后经过天数 DAP 表示，成熟日沿用所选生育期。' : '用于模拟试验，可修改并恢复默认；修改值将参与本次模型运算。'));
+    const grid = el('div', 'soil-grid');
+    specs.forEach(spec => {
+      const field = el('div', 'field');
+      const id = `${crop}Param${spec.key}`;
+      const label = el('label', '', spec.label); label.htmlFor = id;
+      const input = document.createElement('input');
+      Object.assign(input, {id, type:'number', min:String(spec.min), max:String(spec.max), step:'any', required:true, value:values[spec.key]});
+      input.dataset.parameterKey = spec.key;
+      input.dataset.parameterType = phenology ? 'phenology' : 'growth';
+      if (phenology) input.addEventListener('input', () => updateCropCalendar(crop));
+      field.append(label, input);
+      if (spec.hint) field.appendChild(el('div', 'hint', spec.hint));
+      grid.appendChild(field);
+    });
+    const reset = el('button', 'btn btn-sm', `恢复${group.label}默认值`); reset.type = 'button';
+    reset.addEventListener('click', () => {
+      grid.querySelectorAll('input').forEach(input => {input.value=defaults[input.dataset.parameterKey];});
+      if (phenology) updateCropCalendar(crop);
+    });
+    details.append(grid, reset); section.appendChild(details);
+  });
+}
+
+function parameterValues(crop, type) {
+  return Object.fromEntries(Array.from($('#' + crop + 'Agronomy').querySelectorAll(`[data-parameter-type="${type}"]`))
+    .map(input => [input.dataset.parameterKey, Number(input.value)]));
+}
+
 function calendarDay(iso) { return Date.parse(iso + 'T00:00:00Z') / 86400000; }
 function calendarISO(day) { return new Date(day * 86400000).toISOString().slice(0, 10); }
 
@@ -164,6 +208,14 @@ function updateCropCalendar(crop) {
         calendarISO(calendarDay(planted.value) + offset)];
     }),
   });
+  const stagesInput = parameterValues(crop, 'phenology');
+  if (Object.keys(stagesInput).length) {
+    const actual = el('div', 'calendar-stages');
+    box.appendChild(el('div', 'hint', '本次模型物候参数（DAP 为经过天数，参考旬期见上表）'));
+    box.appendChild(actual);
+    renderTable(actual, {columns:['模型阶段','DAP','推算日期'], rows:agronomyConfig.phenology_spec[crop].map(spec =>
+      [spec.label, stagesInput[spec.key], calendarISO(calendarDay(planted.value) + stagesInput[spec.key])])});
+  }
 }
 
 function syncPlantingYear(reset = false) {
@@ -203,19 +255,21 @@ function agronomyRunOptions(crop) {
     if (invalid) {
       const details = invalid.closest('details'); if (details) details.open = true;
       invalid.reportValidity();
-      throw new Error('请核实种植日期与土壤参数');
+      throw new Error('请核实种植日期、土壤及作物参数');
     }
     const layers = Array.from(section.querySelectorAll('.soil-layer')).map(group =>
       Object.fromEntries(Array.from(group.querySelectorAll('input')).map(input => [input.dataset.soilKey, Number(input.value)])));
     if (layers.some(l => !(l.PWP < l.FC && l.FC < l.SAT))) throw new Error('土壤含水率须满足 PWP < FC < SAT');
     const depth = layers.reduce((sum, layer) => sum + layer.depth, 0);
-    const minDepth = agronomyConfig.min_soil_depth[c];
+    const minDepth = Number(parameterValues(c, 'growth').Zmax) + 0.1;
     if (depth < minDepth - 1e-8 || depth > 3 + 1e-8) throw new Error(`土壤总深度须在${minDepth}至3m之间，以覆盖根区与底边界`);
     payload[c + '_agronomy'] = {
       planting_date: $('#' + c + 'PlantingDate').value,
       soil_type: $('#' + c + 'SoilType').value,
       soil_layers: layers,
       soil_cn: Number($('#' + c + 'SoilCN').value),
+      growth: parameterValues(c, 'growth'),
+      phenology: parameterValues(c, 'phenology'),
     };
   });
   return payload;
@@ -435,6 +489,9 @@ function renderResult(jobId, res) {
       updateCropCalendar(crop);
       $('#' + crop + 'SoilType').value = settings.soil_type;
       renderSoilEditor(crop, settings.soil);
+      const legacy = res.rice_parameter_version !== agronomyConfig.parameter_version;
+      renderParameterEditors(crop, legacy ? {...settings, growth: {...agronomyConfig.legacy_growth_defaults[crop], ...(settings.growth || {})}} : settings);
+      updateCropCalendar(crop);
     });
     syncCropSections();
   }
@@ -697,6 +754,7 @@ $('#demoBtn').addEventListener('click', () => {
   if (agronomyConfig) ['rice', 'corn'].forEach(crop => {
     $('#' + crop + 'SoilType').value = agronomyConfig.defaults[crop].soil_type;
     renderSoilEditor(crop);
+    renderParameterEditors(crop);
   });
   const rb = $('input[name=crop][value=both]');
   if (rb) rb.checked = true;

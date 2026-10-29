@@ -37,7 +37,7 @@ _booted = False
 _rs = None
 _wc = None
 
-VERSION = "1.15.1"
+VERSION = "1.15.2"
 
 # (内核绘图函数名, 输出文件名模板, 前端面板标题)
 FIG_SPECS = (
@@ -630,9 +630,24 @@ def validate_run_settings(crops, irrigation_options=None, rice_management=None):
     return settings
 
 
+# Scoped to single-zone entry points; shared kernel and fixed results keep their baselines.
+RICE_DEMO_GROWTH = dict(Kcb=1.30, LagAer=400., p_up2=.50)
+SINGLE_ZONE_PARAMETER_VERSION = "single-zone-demo-20261029"
+
+
 def validate_agronomy_settings(crops, year, options=None):
     _ensure()
     from config.simulation_settings import validate_settings
+    from copy import deepcopy
+    from config.crop_params import growth_defaults, phenology_defaults
+    options = deepcopy(options or {})
+    for crop in crops:
+        item = options.setdefault(crop, {})
+        if crop == "rice":
+            item.setdefault("soil_type", "rice_demo")
+        defaults = growth_defaults(crop) | (RICE_DEMO_GROWTH if crop == "rice" else {})
+        item["growth"] = defaults | (item.get("growth") or {})
+        item["phenology"] = phenology_defaults(crop) | (item.get("phenology") or {})
     return validate_settings(crops, year, options)
 
 
@@ -641,7 +656,12 @@ def agronomy_capabilities():
     from config.simulation_settings import capabilities
     from config.crop_params import RICE_PARAMS
     result = capabilities()
-    result["rice_stomatal_depletion_start_fraction"] = float(RICE_PARAMS["p_up2"])
+    result["defaults"]["rice"]["soil_type"] = "rice_demo"
+    from copy import deepcopy
+    result["legacy_growth_defaults"] = deepcopy(result["growth_defaults"])
+    result["growth_defaults"]["rice"].update(RICE_DEMO_GROWTH)
+    result["rice_stomatal_depletion_start_fraction"] = RICE_DEMO_GROWTH["p_up2"]
+    result["parameter_version"] = SINGLE_ZONE_PARAMETER_VERSION
     return result
 
 
@@ -674,8 +694,8 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
     settings=validate_run_settings(crops,irrigation_options,rice_management)
     from config.soil_params import get_soil_config
     rice_soil=get_soil_config("rice") if "rice" in crops else None
-    from config.crop_params import RICE_PARAMS
-    rice_stomatal_start = float(RICE_PARAMS["p_up2"]) if "rice" in crops else None
+    from config.crop_params import get_crop_params
+    rice_stomatal_start = float(get_crop_params("rice")["p_up2"]) if "rice" in crops else None
 
 
     if owner:
@@ -749,7 +769,7 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
     evidence_name=f"irrigation_evidence_{year}.csv"
     evidence.to_csv(out_dir/evidence_name,index=False,encoding="utf-8-sig")
     settings_name=f"run_settings_{year}.json"
-    (out_dir/settings_name).write_text(json.dumps(dict(model_revision="2026-10-26-crop-simplified-v7",optimization_rule="max_yield_then_min_irrigation",irrigation=settings,agronomy=agronomy,rice_management=rice_management,rice_soil=rice_soil,rice_parameter_version="wutonghe-rice-v6-20261023",rice_stomatal_depletion_start_fraction=rice_stomatal_start),ensure_ascii=False,indent=2),encoding="utf-8")
+    (out_dir/settings_name).write_text(json.dumps(dict(model_revision="2026-10-26-crop-simplified-v7",optimization_rule="max_yield_then_min_irrigation",irrigation=settings,agronomy=agronomy,rice_management=rice_management,rice_soil=rice_soil,rice_parameter_version=SINGLE_ZONE_PARAMETER_VERSION,rice_stomatal_depletion_start_fraction=rice_stomatal_start),ensure_ascii=False,indent=2),encoding="utf-8")
     optimal_files = []
     if not optimal.empty:
         optimal.to_csv(out_dir / f"optimal_irrigation_{year}.csv",
@@ -897,7 +917,7 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
         "model_revision": "2026-10-26-crop-simplified-v7",
         "optimization_rule":"max_yield_then_min_irrigation",
         "rice_optimization_status":"four_regime_max_yield",
-        "rice_parameter_version":"wutonghe-rice-v6-20261023",
+        "rice_parameter_version":SINGLE_ZONE_PARAMETER_VERSION,
         "rice_stomatal_depletion_start_fraction":rice_stomatal_start,
         "rice_soil":rice_soil,
         "rice_management":rice_management or {},
