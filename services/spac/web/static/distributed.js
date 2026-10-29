@@ -114,7 +114,7 @@
       ctx.fillStyle = colors[f.properties.dominant_crop];
       ctx.fill(path, 'evenodd');
       ctx.lineWidth = 0.3 / scale; ctx.strokeStyle = '#0c1e24'; ctx.stroke(path);
-      if (f.id === focused) { ctx.strokeStyle = '#ffd47a'; ctx.lineWidth = 2.8 / scale; ctx.stroke(path); }
+      if (f.id === focused) { ctx.strokeStyle = '#c65b00'; ctx.lineWidth = 2.8 / scale; ctx.stroke(path); }
     });
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     const cropsShown = new Set(displayed.map(p => p.feature.properties.dominant_crop));
@@ -127,40 +127,29 @@
 
   function fitMap() {
     if (!bounds) { draw(); return; }
-    scale = Math.min((canvas.clientWidth - 42) / (bounds[2] - bounds[0]),
-                     (canvas.clientHeight - 42) / (bounds[3] - bounds[1]));
+    const padding = 28, width = canvas.clientWidth;
+    if (width <= 2 * padding) return;
+    const height = Math.ceil((width - 2 * padding) * (bounds[3] - bounds[1]) / (bounds[2] - bounds[0]) + 2 * padding);
+    const heightStyle = `${height}px`;
+    if (canvas.parentElement.style.height !== heightStyle) canvas.parentElement.style.height = heightStyle;
+    scale = Math.min((width - 2 * padding) / (bounds[2] - bounds[0]),
+                     (canvas.clientHeight - 2 * padding) / (bounds[3] - bounds[1]));
     offsetX = (canvas.clientWidth - scale * (bounds[0] + bounds[2])) / 2;
     offsetY = (canvas.clientHeight - scale * (bounds[1] + bounds[3])) / 2;
     draw();
   }
 
-  let drag = null;
-  canvas.addEventListener('pointerdown', e => {
-    canvas.setPointerCapture(e.pointerId);
-    drag = {x: e.offsetX, y: e.offsetY, ox: offsetX, oy: offsetY, moved: false};
-  });
-  canvas.addEventListener('pointermove', e => {
-    if (!drag) return;
-    const dx = e.offsetX - drag.x, dy = e.offsetY - drag.y;
-    if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
-    if (drag.moved) { offsetX = drag.ox + dx; offsetY = drag.oy + dy; draw(); }
-  });
-  canvas.addEventListener('pointerup', e => {
-    if (!drag) return;
-    const moved = drag.moved; drag = null;
-    if (moved) return;
+  let press = null;
+  canvas.addEventListener('pointerdown', e => { press = {x:e.clientX, y:e.clientY}; });
+  canvas.addEventListener('pointercancel', () => { press = null; });
+  canvas.addEventListener('click', e => {
+    const dragged = press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6;
+    press = null;
+    if (dragged || e.detail > 1) return;
     const x = (e.offsetX - offsetX) / scale, y = (e.offsetY - offsetY) / scale;
     const hit = paths.find(p => visible(p.feature) && ctx.isPointInPath(p.path, x, y, 'evenodd'));
     if (hit) guarded(() => showDetail(hit.feature.id))();
   });
-  canvas.addEventListener('pointercancel', () => { drag = null; });
-  canvas.addEventListener('wheel', e => {
-    e.preventDefault();
-    const zoom = e.deltaY < 0 ? 1.22 : 1 / 1.22;
-    offsetX = e.offsetX - (e.offsetX - offsetX) * zoom;
-    offsetY = e.offsetY - (e.offsetY - offsetY) * zoom;
-    scale *= zoom; draw();
-  }, {passive: false});
   new ResizeObserver(() => { if (geo) fitMap(); }).observe(canvas.parentElement);
 
   /* ---------------- 格网详情 ---------------- */
@@ -230,18 +219,12 @@
     draw();
   }));
   $('#distFilter').addEventListener('change', draw);
-  $('#distFit').addEventListener('click', fitMap);
   $('#distLocate').addEventListener('click', guarded(async () => {
     const id = $('#distGridSearch').value.trim();
     const f = features.find(f => f.id === id);
     if (!f) throw new Error('该年份没有该格网的可显示结果');
     if (!visible(f)) $('#distFilter').value = 'all';
     await showDetail(id);
-    const p = project([f.properties.longitude, f.properties.latitude]);
-    scale = Math.max(scale, 15000);
-    offsetX = canvas.clientWidth / 2 - scale * p[0];
-    offsetY = canvas.clientHeight / 2 - scale * p[1];
-    draw();
   }));
 
   const initialize = guarded(async () => {
