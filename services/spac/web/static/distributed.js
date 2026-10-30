@@ -58,7 +58,7 @@
       <td>${number(r.net_water_m3,0)}</td><td>${number(r.production_t,1)}</td><td>${number(r.weighted_yield_t_ha,3)}</td></tr>`).join('');
     const coverage = Object.entries(summary.coverage).map(([c,v]) => {
       const area = (summary.schemes.find(r => r.crop === c) || {}).area_ha || 0;
-      return `${cropNames[c]}：已算${number(area)} ha（可计算面积的${number(100*area/v.eligible_area_ha,1)}%，种植面积的${number(100*area/v.expected_area_ha,1)}%），缺输入${number(v.expected_area_ha-v.eligible_area_ha)} ha`;
+      return `${cropNames[c]}：已算${number(area)} ha（可计算面积的${number(100*area/v.eligible_area_ha,1)}%，种植面积的${number(100*area/v.expected_area_ha,1)}%）`;
     }).join('；');
     $('#distSummary').innerHTML = `<div class="dist-table-wrap"><table class="dist-result-table"><thead><tr>
       <th>作物</th><th>制度</th><th>格数</th><th>已算面积 ha</th><th>净灌水 mm</th><th>已算净水量 m³</th><th>已算总产 t</th><th>单产 t/ha</th>
