@@ -62,9 +62,9 @@ def _soil_catalog():
     demo = deepcopy(catalog["wutonghe_paddy"])
     import json
     candidate = json.loads(Path(__file__).with_name("single_zone_rice.json").read_text(encoding="utf-8"))
-    demo.update(name="水稻ui-83模拟土壤", label="水稻ui-83模拟土壤（当前默认）",
+    demo.update(name="水稻跨年敏感性模拟土壤", label="水稻跨年敏感性模拟土壤（当前默认）",
                 layers=deepcopy(candidate["options"]["soil_layers"]),
-                source="单区ui-83模拟候选，未经田间率定；2025年满足数值目标，跨年未稳定达标", version="single-zone-ui83-20261029")
+                source="单区refine-5模拟候选，FC偏高且SAT-FC空间较小，未经田间率定；各年差异与最高产制度不同", version="single-zone-refine5-20261030")
     demo["compartments"] = [layer["depth"] / math.ceil(layer["depth"] / .1 - 1e-9)
                             for layer in demo["layers"]
                             for _ in range(math.ceil(layer["depth"] / .1 - 1e-9))]

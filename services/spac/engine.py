@@ -37,7 +37,7 @@ _booted = False
 _rs = None
 _wc = None
 
-VERSION = "1.15.5"
+VERSION = "1.15.6"
 
 # (内核绘图函数名, 输出文件名模板, 前端面板标题)
 FIG_SPECS = (
@@ -642,7 +642,7 @@ def validate_run_settings(crops, irrigation_options=None, rice_management=None):
 import json as _json
 _RICE_SINGLE_ZONE = _json.loads((KERNEL_DIR / "config/single_zone_rice.json").read_text(encoding="utf-8"))
 RICE_DEMO_GROWTH = _RICE_SINGLE_ZONE["options"]["growth"]
-SINGLE_ZONE_PARAMETER_VERSION = "single-zone-ui83-20261029"
+SINGLE_ZONE_PARAMETER_VERSION = "single-zone-refine5-20261030"
 
 
 def weather_bounds(year, owner=None):

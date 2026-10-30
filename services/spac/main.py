@@ -160,6 +160,12 @@ class RiceManagement(BaseModel):
     cold_events: list[RiceColdEvent] = Field(default_factory=list)
 
 
+class SingleZoneRiceManagement(RiceManagement):
+    regreen_days: int = Field(19, ge=1, le=40)
+    tillering_peak_dap: int = Field(28, ge=2, le=70)
+    drying_start_dap: int = Field(46, ge=3, le=75)
+
+
 class RunReq(BaseModel):
     model_config = {"extra": "forbid"}
     year: int = Field(..., description="模拟年份")
@@ -172,7 +178,7 @@ class RunReq(BaseModel):
     corn_application_efficiency_pct: float = Field(90.,gt=0.,le=100.)
     rice_agronomy: AgronomyReq | None = None
     corn_agronomy: AgronomyReq | None = None
-    rice_management: RiceManagement = Field(default_factory=RiceManagement)
+    rice_management: SingleZoneRiceManagement = Field(default_factory=SingleZoneRiceManagement)
 
 
 @app.post(f"{BASE_PATH}/api/run")
