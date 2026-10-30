@@ -243,7 +243,7 @@ def simulate(crop, year, agronomy, out_dir, management):
             if len(results) != engine.n_schemes(crop):
                 raise ValueError("部分灌溉方案失败，不能从不完整候选中选优")
             table = rs.build_optimization_table(results, year)
-            optimal = rs.find_optimal(table)
+            optimal = rs.find_optimal(table, rice_yield_floor_fraction=1.)
             label = optimal.iloc[0]["最优方案"]
             chosen = next(r for r in results if r.label == label)
             metric = dict(scheme=label,

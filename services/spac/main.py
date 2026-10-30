@@ -246,8 +246,10 @@ def capabilities():
         "accepts": ["weather_csv"],
         "utilization_profiles":UTILIZATION_PROFILES,
         "agronomy":engine.agronomy_capabilities(),
-        "optimization_rule":"max_yield_then_min_irrigation",
-        "rice_optimization_status":"four_regime_max_yield",
+        "optimization_rule":"crop_specific",
+        "optimization_rules":{"rice":engine._ensure()[0].RICE_OPTIMIZATION_RULE,"corn":"max_yield_then_min_irrigation"},
+        "rice_optimization_status":"four_regime_yield_floor_min_irrigation",
+        "rice_yield_floor_fraction":engine._ensure()[0].RICE_YIELD_FLOOR_FRACTION,
         "rice_parameter_version":engine.SINGLE_ZONE_PARAMETER_VERSION,
     }
 

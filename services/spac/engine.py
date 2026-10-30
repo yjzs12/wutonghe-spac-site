@@ -37,7 +37,7 @@ _booted = False
 _rs = None
 _wc = None
 
-VERSION = "1.15.8"
+VERSION = "1.15.9"
 
 # (内核绘图函数名, 输出文件名模板, 前端面板标题)
 FIG_SPECS = (
@@ -826,13 +826,15 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
     evidence_name=f"irrigation_evidence_{year}.csv"
     evidence.to_csv(out_dir/evidence_name,index=False,encoding="utf-8-sig")
     settings_name=f"run_settings_{year}.json"
-    (out_dir/settings_name).write_text(json.dumps(dict(model_revision="2026-10-26-crop-simplified-v7",optimization_rule="max_yield_then_min_irrigation",irrigation=settings,agronomy=agronomy,rice_management=rice_management,rice_soil=rice_soil,rice_parameter_version=SINGLE_ZONE_PARAMETER_VERSION,rice_stomatal_depletion_start_fraction=rice_stomatal_start),ensure_ascii=False,indent=2),encoding="utf-8")
+    optimization_rules = {crop: rs.RICE_OPTIMIZATION_RULE if crop == "rice" else "max_yield_then_min_irrigation" for crop in crops}
+    optimization_rule = optimization_rules[crops[0]] if len(crops) == 1 else "crop_specific"
+    (out_dir/settings_name).write_text(json.dumps(dict(model_revision="2026-10-26-crop-simplified-v7",optimization_rule=optimization_rule,optimization_rules=optimization_rules,rice_yield_floor_fraction=rs.RICE_YIELD_FLOOR_FRACTION,irrigation=settings,agronomy=agronomy,rice_management=rice_management,rice_soil=rice_soil,rice_parameter_version=SINGLE_ZONE_PARAMETER_VERSION,rice_stomatal_depletion_start_fraction=rice_stomatal_start),ensure_ascii=False,indent=2),encoding="utf-8")
     optimal_files = []
     if not optimal.empty:
         optimal.to_csv(out_dir / f"optimal_irrigation_{year}.csv",
                        index=False, encoding="utf-8-sig")
         optimal_files.append(f"optimal_irrigation_{year}.csv")
-        log(f"\n★ {year} 年灌溉筛选结果（最高产，同产量取灌水最少）：")
+        log(f"\n★ {year} 年灌溉筛选结果（水稻保留最高产量{rs.RICE_YIELD_FLOOR_FRACTION:.0%}后取净灌水最少；玉米最高产、同产量取净灌水最少）：")
         log(optimal.to_string(index=False))
 
     # ---- 生长过程曲线（冠层覆盖度 / 干物质量，正常灌溉对照 + 各档叠加）----
@@ -972,8 +974,10 @@ def _run_configured(crops: list[str], year: int, out_dir: Path, progress=None,
     return {
         "type": "spac",
         "model_revision": "2026-10-26-crop-simplified-v7",
-        "optimization_rule":"max_yield_then_min_irrigation",
-        "rice_optimization_status":"four_regime_max_yield",
+        "optimization_rule":optimization_rule,
+        "optimization_rules":optimization_rules,
+        "rice_optimization_status":"four_regime_yield_floor_min_irrigation",
+        "rice_yield_floor_fraction":rs.RICE_YIELD_FLOOR_FRACTION,
         "rice_parameter_version":SINGLE_ZONE_PARAMETER_VERSION,
         "rice_stomatal_depletion_start_fraction":rice_stomatal_start,
         "rice_soil":rice_soil,

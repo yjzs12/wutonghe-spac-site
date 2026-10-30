@@ -9,7 +9,7 @@ SPAC 作物生长模型 —— 灌溉制度优化运行器
   玉米为墒情控制六档，共 6 个方案：
     四阶段全100、全75、全50、全25、雨养、AquaCrop动态最优。
   动态最优搜索四个生育阶段的整数阈值，直接采用最高产、同产量最少净灌水的组合。
-  水稻从四制度中选择最高产、同产量净灌水最少的方案。
+  水稻从产量不低于四制度最高产量99%的制度中选择净灌水最少的方案。
 
 用法：
   python run_scenarios.py                          # 默认两年(2024, 2025)
@@ -283,29 +283,37 @@ def _corn_find_optimal(summary: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _rice_optimal_row(sub):
+RICE_YIELD_FLOOR_FRACTION = 0.99
+RICE_OPTIMIZATION_RULE = "yield_at_least_99pct_peak_then_min_irrigation"
+
+
+def _rice_optimal_row(sub, yield_floor_fraction=RICE_YIELD_FLOOR_FRACTION):
     from modules.irrigation import RICE_LABELS
     pool = sub[sub["灌溉方案"].isin(RICE_LABELS)].copy()
     if len(pool) != len(RICE_LABELS) or pool["灌溉方案"].nunique() != len(RICE_LABELS):
         raise ValueError("水稻四制度结果不完整，无法选取最优制度")
     if not np.isfinite(pool[["最终籽粒产量(t/ha)", "累计灌溉量(mm)"]].to_numpy(dtype=float)).all():
         raise ValueError("水稻产量或灌水量无效")
-    return pool.sort_values(["最终籽粒产量(t/ha)", "累计灌溉量(mm)"],
-                            ascending=[False, True], kind="stable").iloc[0]
+    if (pool[["最终籽粒产量(t/ha)", "累计灌溉量(mm)"]] < 0).any().any():
+        raise ValueError("水稻产量或灌水量不能为负数")
+    y_max = float(pool["最终籽粒产量(t/ha)"].max())
+    eligible = pool[pool["最终籽粒产量(t/ha)"] >= yield_floor_fraction * y_max]
+    return eligible.sort_values(["累计灌溉量(mm)", "最终籽粒产量(t/ha)"],
+                                ascending=[True, False], kind="stable").iloc[0]
 
 
-def _rice_find_optimal(summary: pd.DataFrame) -> pd.DataFrame:
-    """Choose among the four supplied regimes by yield, then net irrigation."""
+def _rice_find_optimal(summary: pd.DataFrame, yield_floor_fraction=RICE_YIELD_FLOOR_FRACTION) -> pd.DataFrame:
+    """Minimize net irrigation subject to the supplied fraction of peak yield."""
     from modules.irrigation import RICE_LABELS
     optimal_rows = []
     for crop_cn, sub in summary.groupby("作物"):
-        optimal = _rice_optimal_row(sub)
-        y_max = float(optimal["最终籽粒产量(t/ha)"])
+        optimal = _rice_optimal_row(sub, yield_floor_fraction)
+        y_max = float(sub.loc[sub["灌溉方案"].isin(RICE_LABELS), "最终籽粒产量(t/ha)"].max())
         optimal_rows.append({
             "作物": crop_cn,
             "方案类型": optimal["方案类型"],
             "最优方案": optimal["灌溉方案"],
-            "判定性质": "四制度最高产、同产量净灌水最少",
+            "判定性质": "四制度最高产、同产量净灌水最少" if yield_floor_fraction == 1 else f"产量不低于四制度最高产量{yield_floor_fraction:.0%}，净灌水最少",
             "较峰值减产(%)": (1-(optimal["最终籽粒产量(t/ha)"]/y_max if y_max else 1))*100,
             "灌溉参数": optimal["灌溉参数"],
             "累计灌溉量(mm)": optimal["累计灌溉量(mm)"],
@@ -319,12 +327,12 @@ def _rice_find_optimal(summary: pd.DataFrame) -> pd.DataFrame:
         })
     return pd.DataFrame(optimal_rows)
 
-def find_optimal(summary):
+def find_optimal(summary, *, rice_yield_floor_fraction=RICE_YIELD_FLOOR_FRACTION):
     parts = []
     for crop, finder in (("水稻", _rice_find_optimal), ("玉米", _corn_find_optimal)):
         group = summary[summary["作物"].eq(crop)]
         if not group.empty:
-            result = finder(group)
+            result = finder(group, rice_yield_floor_fraction) if crop == "水稻" else finder(group)
             if not result.empty:
                 parts.append(result)
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
@@ -445,7 +453,7 @@ def plot_multi_crop_comparison(all_summary: pd.DataFrame, sim_year: int, savepat
 
 
 def select_water_result(results, crop):
-    """Use the same winner as the summary: highest yield, then least net water."""
+    """Use the same crop-specific selection rule as the summary."""
     rows = [r for r in results if r.crop == crop]
     if crop == "rice":
         table = pd.DataFrame([{"灌溉方案": r.label, **{key: r.summary[key] for key in

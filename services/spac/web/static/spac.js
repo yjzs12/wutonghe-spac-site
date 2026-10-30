@@ -623,7 +623,10 @@ function renderResult(jobId, res) {
   }
   renderTable($('#summaryBody'), tableForDisplay(res.summary), { highlight: hl });
   $('#optimalTitle').textContent = riceV6 && !simplified ? '灌溉方案筛选' : directModel ? '最佳灌溉方式' : '历史候选结果';
-  $('#optimalCriterion').textContent = simplified ? '最高产，同产量取灌水最少' : riceV6 ? '历史筛选结果' : directModel ? '玉米最优方案' : '历史结果';
+  const riceWaterSaving = res.rice_optimization_status === 'four_regime_yield_floor_min_irrigation' && (res.crops || []).includes('rice');
+  $('#optimalCriterion').textContent = riceWaterSaving
+    ? `水稻：产量≥最高产${fmtNum(res.rice_yield_floor_fraction * 100, 0)}%，取净灌水最少` + ((res.crops || []).includes('corn') ? '；玉米：最高产，同产量取灌水最少' : '')
+    : simplified ? '最高产，同产量取灌水最少' : riceV6 ? '历史筛选结果' : directModel ? '玉米最优方案' : '历史结果';
   $('#summarySub').textContent = `${res.year} 年 · ${res.summary.rows.length} 个方案 · 绿色行为${riceV6 && !simplified ? '历史候选' : directModel ? '最优方案' : '历史候选'}`;
   const evidenceBox = $('#evidenceBody');
   evidenceBox.innerHTML = '';
